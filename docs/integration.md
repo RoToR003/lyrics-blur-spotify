@@ -60,12 +60,14 @@ Notes:
 
 ## 4. Build & verify
 
+For the full step-by-step verification (Morphe Manager flow: build → add source → patch → on-device test matrix; optional device-free Morphe CLI gate), see `docs/verification.md` in the source repo. Short version:
+
 ```
-./gradlew build            # Kotlin + Java compile, patch discovery
-./gradlew buildAndroid     # if the template exposes it; produces patches/build/libs/*.mpp
+GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-daemon
+# produces patches/build/libs/patches-<version>.mpp
 ```
 
-Expected: `BUILD SUCCESSFUL`. Warnings about deprecated dexlib2 calls are fine (there are none left — the code uses `DexFormatter`).
+Expected: `BUILD SUCCESSFUL`. Warnings about deprecated dexlib2 calls are fine (there are none left — the code uses `DexFormatter`). As in upstream's own CI, an optional device-free gate is the Morphe CLI: `patch -e "Lyrics blur"` on the APKM and inspect `result.json` (`success=true`, empty `failedPatches`, patch in `appliedPatches`) — see `docs/verification.md` §A.
 
 Then, on a device with Morphe Manager:
 

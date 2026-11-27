@@ -25,10 +25,13 @@ ksh0.a(...)  ── (bytecode patch) ──►  v0 = lxs1.k(v0, LyricsBlurPatch.
 
 ## Repository layout
 
+**Getting the `.mpp`:** every push builds the bundle **in CI** (`Build .mpp` workflow, run #2 is green). Download `lyrics-blur-spotify-mpp` from this repo's **Actions** tab → latest green run → Artifacts. Or build locally with `scripts/build-mpp.sh` (needs JDK 21 + Android SDK + a GitHub token with `read:packages`). Details in [`docs/verification.md`](docs/verification.md) M1.
+
 This repository is **not** a standalone build. It carries the patch's source files in the exact
 layout expected by [southstar21's Patches](https://github.com/southstar21dev/southstar21-patches),
 plus the research behind them. To use the patch, integrate it into that repo — see
-[`docs/integration.md`](docs/integration.md).
+[`docs/integration.md`](docs/integration.md), then verify it step by step with
+[`docs/verification.md`](docs/verification.md) (via Morphe Manager: build → add source → patch → on-device tests; Morphe CLI as an optional pre-device gate).
 
 ```
 extensions/spotify/src/main/java/app/southstar21/extension/spotify/lyricsblur/LyricsBlurPatch.java
@@ -37,6 +40,8 @@ patches/src/main/kotlin/app/southstar21/patches/spotify/layout/lyricsblur/Lyrics
 docs/research.md       — research notes: mechanism, anchors, what was verified
                          against the upstream pins, what is still unverified (uk)
 docs/integration.md    — step-by-step integration into southstar21-patches
+docs/verification.md   — перевірка патчу через Morphe Manager (M1 build → M2 source →
+                         M3 patch+install → M4 tests); Morphe CLI — опційний гейт (uk)
 ```
 
 ## Options

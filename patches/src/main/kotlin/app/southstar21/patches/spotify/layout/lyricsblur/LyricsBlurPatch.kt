@@ -109,5 +109,26 @@ val spotifyLyricsBlurPatch = bytecodePatch(
                 move-result-object v0
             """
         )
+
+        // Marker (b): confirms control reaches the anchor region. Inserted after the blur block
+        // at the same index, so it lands right before it. v2 is free at this point (see above).
+        // Fires once per process and only under Debug logging; see #marker in the extension.
+        method.addInstructions(
+            index,
+            """
+                const-string v2, "LB: reached anchor"
+                invoke-static { v2 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+            """
+        )
+
+        // Marker (a): at method entry — confirms this composable runs at all. v0 is a free local
+        // on entry. Fires once per process and only under Debug logging.
+        method.addInstructions(
+            0,
+            """
+                const-string v0, "LB: enter ksh0.a"
+                invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+            """
+        )
     }
 }

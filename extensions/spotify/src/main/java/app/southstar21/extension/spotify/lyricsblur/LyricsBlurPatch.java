@@ -40,6 +40,7 @@ public final class LyricsBlurPatch {
     private static final StringBuilder debugBuffer = new StringBuilder();
     private static int toastsShown;
     private static final int TOAST_LIMIT = 12;
+    private static final java.util.HashSet<String> seenMarkers = new java.util.HashSet<>();
 
     private LyricsBlurPatch() {
     }
@@ -104,17 +105,55 @@ public final class LyricsBlurPatch {
     /**
      * Shows a short toast when hook events occur — the only debug channel that needs nothing at
      * all (no adb, no file manager). Capped at {@link #TOAST_LIMIT} per process; debug-only.
+     * Posted to the main looper: composables may run off the UI thread, and Toast requires one.
      */
     private static void debugToast(String line) {
         try {
             if (toastsShown >= TOAST_LIMIT) return;
             toastsShown++;
-            Context ctx = (Context) Class.forName("android.app.ActivityThread")
-                    .getMethod("currentApplication").invoke(null);
-            if (ctx == null) return;
-            android.widget.Toast.makeText(ctx, line, android.widget.Toast.LENGTH_SHORT).show();
+            postToast(line, android.widget.Toast.LENGTH_SHORT);
         } catch (Throwable ignored) {
             // Never take the app down over a debug toast.
+        }
+    }
+
+    private static void postToast(final String line, final int duration) {
+        try {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Context ctx = (Context) Class.forName("android.app.ActivityThread")
+                                .getMethod("currentApplication").invoke(null);
+                        if (ctx == null) return;
+                        android.widget.Toast.makeText(ctx, line, duration).show();
+                    } catch (Throwable ignored) {
+                        // Never take the app down over a debug toast.
+                    }
+                }
+            });
+        } catch (Throwable ignored) {
+            // Never take the app down over a debug toast.
+        }
+    }
+
+    /**
+     * Debug marker from the patch itself: fires once per {@code name} per process; logcat + file +
+     * toast. Used to bisect where control flow reaches in the target method. No-op when Debug
+     * logging is off; never throws.
+     */
+    public static void marker(String name) {
+        try {
+            if (!debugLogging()) return;
+            synchronized (seenMarkers) {
+                if (seenMarkers.contains(name)) return;
+                seenMarkers.add(name);
+            }
+            Log.d(TAG, name);
+            debugWrite(name);
+            postToast(name, android.widget.Toast.LENGTH_LONG);
+        } catch (Throwable t) {
+            Log.e(TAG, "marker failed", t);
         }
     }
 

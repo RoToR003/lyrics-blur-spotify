@@ -25,7 +25,7 @@ ksh0.a(...)  ── (bytecode patch) ──►  v0 = lxs1.k(v0, LyricsBlurPatch.
 
 ## Repository layout
 
-**Getting the `.mpp`:** the Releases page has a rolling prerelease **[bundle-latest](https://github.com/RoToR003/lyrics-blur-spotify/releases/tag/bundle-latest)** with the bundle attached — download `patches-*.mpp` **without** the `-sources`/`-javadoc` suffix (≈4.5 MB). The same file is also on every green `Build .mpp` run under **Actions → Artifacts** (`lyrics-blur-spotify-mpp`). Or build locally with `scripts/build-mpp.sh`. Details in [`docs/verification.md`](docs/verification.md) M1.
+**Getting the patch into Morphe:** this repository works as a Morphe **Remote patch source** — add it by URL and Morphe keeps it updated automatically. Morphe → Sources → Add → **Remote** → paste `https://github.com/RoToR003/lyrics-blur-spotify` (or open https://morphe.software/add-source?github=RoToR003/lyrics-blur-spotify). How this works: `patches-bundle.json` at the repo root (kept up to date by CI on every publish) tells Morphe where the bundle is: the rolling prerelease **[bundle-latest](https://github.com/RoToR003/lyrics-blur-spotify/releases/tag/bundle-latest)** with the stable-named asset `patches.mpp` (≈2.5 MB). Direct download: [patches.mpp](https://github.com/RoToR003/lyrics-blur-spotify/releases/download/bundle-latest/patches.mpp). The same `.mpp` is also on every green `Build .mpp` run under **Actions → Artifacts** (`lyrics-blur-spotify-mpp`), or build locally with `scripts/build-mpp.sh`. Details in [`docs/verification.md`](docs/verification.md) M1–M2.
 
 This repository is **not** a standalone build. It carries the patch's source files in the exact
 layout expected by [southstar21's Patches](https://github.com/southstar21dev/southstar21-patches),

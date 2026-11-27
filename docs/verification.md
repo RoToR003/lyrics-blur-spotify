@@ -23,8 +23,15 @@
 
 ## M1. Збірка `.mpp`
 
-Варіант 0 — **Releases → [bundle-latest](https://github.com/RoToR003/lyrics-blur-spotify/releases/tag/bundle-latest)** (rolling prerelease, оновлюється після кожної збірки на main і з ручного запуску workflow):
-файл `patches-<версія>.mpp` **без** `-sources`/`-javadoc` у назві (≈4.5 MB).
+Варіант 0 — **Remote source (автооновлення)**: цей репозиторій є повноцінним Morphe remote source —
+додайте **сам репозиторій** (`https://github.com/RoToR003/lyrics-blur-spotify`) як джерело (див. M2, Спосіб C).
+Morphe читає `patches-bundle.json` у корені main-гілки (CI оновлює його при кожній публікації) і тягне бандл з
+rolling prerelease **[bundle-latest](https://github.com/RoToR003/lyrics-blur-spotify/releases/tag/bundle-latest)**
+(стабільна назва файла — `patches.mpp`, ≈2.5 MB). Пряме посилання:
+`https://github.com/RoToR003/lyrics-blur-spotify/releases/download/bundle-latest/patches.mpp`.
+
+Варіант 0-bis — **локально з Releases**: той самий файл `patches.mpp`, додати вручну (M2, Спосіб A/B).
+Оновлюється після кожної збірки на main і з ручного запуску workflow.
 
 Варіант 0-bis — **з Actions цього репозиторію**: кожен пуш збирає bundle;
 відкрити Actions → останній ЗЕЛЕНИЙ run "Build .mpp" → артефакт `lyrics-blur-spotify-mpp` → завантажити
@@ -55,9 +62,16 @@ GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-dae
 1. Morphe → **Sources** → **Add** → «Add patch source».
 2. Обрати **Local** → «Select patch source files» → вказати `.mpp` (ім'я обов'язково `.mpp`).
 
-**Спосіб C — Remote** (автооновлення при релізах): Add → **Remote** → вставити URL джерела
-(`https://github.com/southstar21dev/southstar21-patches` — якщо патч смерджать туди) або deep-link
-`https://morphe.software/add-source?github=southstar21dev/southstar21-patches`.
+**Спосіб C — Remote (URL самого репозиторію; автооновлення):**
+1. Morphe → **Sources** → **Add** → **Remote**.
+2. Вставити `https://github.com/RoToR003/lyrics-blur-spotify` (або відкрити deep-link
+   `https://morphe.software/add-source?github=RoToR003/lyrics-blur-spotify` — Morphe запитає підтвердження).
+3. Готово: Morphe сам читає `patches-bundle.json` з гілки `main` і тягне `patches.mpp` з rolling prerelease
+   `bundle-latest`. Оновлення видно, коли змінюється `created_at`/`version` у цьому файлі — CI оновлює їх при
+   кожній публікації, тому нові збірки підтягнуться автоматично. (Альтернатива для апстріму — якщо патч
+   смерджать у southstar21-patches, там теж Remote source: `https://github.com/southstar21dev/southstar21-patches`.)
+4. Зауважте: бандл **не підписаний** (немає `public_key` у `patches-bundle.json`) — підходить як і будь-який
+   сторонній неофіційний source; довіра — на вас.
 
 Після додавання переконайтесь:
 - у списку з'явився **Spotify 9.2.4.2644** (після `AppTarget("9.2.4.2644")` — як перевірений таргет).

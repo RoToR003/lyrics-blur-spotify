@@ -89,3 +89,39 @@ jobs:
           name: lyrics-blur-spotify-mpp
           path: southstar21-patches/patches/build/libs/*.mpp
           if-no-files-found: error
+
+  publish:
+    # Rolling prerelease "bundle-latest" with the .mpp attached, so the bundle is downloadable
+    # from the Releases page (workflow artifacts expire). Runs on main and on manual dispatch.
+    name: Publish bundle release
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download .mpp
+        uses: actions/download-artifact@v4
+        with:
+          name: lyrics-blur-spotify-mpp
+          path: mpp
+
+      - name: Publish to the bundle-latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd mpp
+          file=$(ls *.mpp | head -1)
+          echo "Publishing $file (from $GITHUB_SHA)"
+          if gh release view bundle-latest >/dev/null 2>&1; then
+            gh release delete bundle-latest --yes --cleanup-tag
+          fi
+          gh release create bundle-latest "$file" \
+            --prerelease \
+            --title "Patch bundle — latest build" \
+            --notes "Auto-built by the **Build .mpp** workflow from $GITHUB_SHA (branch $GITHUB_REF_NAME).
+
+          Contains the **Lyrics blur** patch for Spotify 9.2.4.2644 (APKM), together with the rest of the southstar21 Spotify bundle.
+
+          **Use:** download the \`.mpp\` and add it to Morphe Manager (see docs/verification.md, M2). Not an official upstream release."

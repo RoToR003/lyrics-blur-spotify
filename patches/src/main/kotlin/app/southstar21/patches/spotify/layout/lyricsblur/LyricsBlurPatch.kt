@@ -97,9 +97,12 @@ val spotifyLyricsBlurPatch = bytecodePatch(
             )
         }
 
-        // p1 (the line is active) and p2 (the lyrics are synced) are v63 and v64, out of reach of
-        // a plain invoke, hence the range form. v2 is free here: the next instruction after the
-        // anchor's result is `iget v2, ...` which overwrites it before anything reads it.
+        // smali pN is 0-based: p0 = v62 = psh0 (reference), p1 = v63 (first Z), p2 = v64
+        // (second Z). v63 is believed to be "this line is the active one"
+        // (p.sit1.v(syncState, index)); v64 the synced-mode flag (p.tzh0#b).
+        // v2 is free at the anchor: the next instruction after the anchor's result
+        // overwrites it (`iget v2, ...`) before anything reads it.
+        // { p1 .. p2 } = the two Z params (v63, v64) — never p0 (the reference).
         method.addInstructions(
             index,
             """
@@ -110,25 +113,77 @@ val spotifyLyricsBlurPatch = bytecodePatch(
             """
         )
 
-        // Marker (b): confirms control reaches the anchor region. Inserted after the blur block
-        // at the same index, so it lands right before it. v2 is free at this point (see above).
-        // Fires once per process and only under Debug logging; see #marker in the extension.
+        // Anchor tracker (diagnostic): fires per call at the blur insertion point, capped at
+        // 200. Together with the once-per-process "LB: enter ksh0.a" marker it distinguishes
+        // "composable entered but Compose skipped the body" from "body ran". Debug-only.
         method.addInstructions(
             index,
             """
-                const-string v2, "LB: reached anchor"
-                invoke-static { v2 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                invoke-static/range { p1 .. p2 }, $EXTENSION_CLASS->anchor(ZZ)V
             """
         )
 
-        // Marker (a): at method entry — confirms this composable runs at all. v0 is a free local
-        // on entry. Fires once per process and only under Debug logging.
+        // Marker (a): at method entry — confirms this composable runs at all — and the entry
+        // tracker: logs (p1, p2) on EVERY call, so we see composition activity even if the
+        // body exits before the anchor. { p1 .. p2 }: the two Z params (v63, v64). v0 is free on entry.
         method.addInstructions(
             0,
             """
                 const-string v0, "LB: enter ksh0.a"
                 invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                invoke-static/range { p1 .. p2 }, $EXTENSION_CLASS->entry(ZZ)V
             """
         )
+
+        // Diagnostic: probe the translate-mode wrapper composable p.ksh0.b — possibly the one
+        // that actually renders the full-screen lyrics surface. Its own call of ANCHOR_CALL
+        // (modifier + 1.0f, modifier in v1) is tracked with a per-call anchor tracker; no blur
+        // is injected there yet: the (p5, p6) booleans' semantics are unknown. If the on-device
+        // log shows bAnchor firing and the a-anchor silent, the blur hook belongs in b.
+        // b params (0-based): p5 = v17 (Z), p6 = v18 (Z) -> { p5 .. p6 }.
+        // Optional: if the wrapper's shape changes, the a-path stays patched.
+        val wrapper = runCatching { LyricsLineWrapperFingerprint.method }.getOrNull()
+        if (wrapper != null) {
+            wrapper.addInstructions(
+                0,
+                """
+                    const-string v0, "LB: enter ksh0.b"
+                    invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                """
+            )
+            val bAnchors = wrapper.implementation!!.instructions.withIndex().filter { (_, instruction) ->
+                instruction.opcode == Opcode.INVOKE_STATIC &&
+                        ((instruction as ReferenceInstruction).reference as? MethodReference)
+                            ?.let { DexFormatter.INSTANCE.getMethodDescriptor(it) == ANCHOR_CALL } == true
+            }
+            if (bAnchors.size == 1) {
+                val (bIndex, bAnchorInstruction) = bAnchors.single()
+                val bCall = bAnchorInstruction as FiveRegisterInstruction
+                if (bCall.registerC == 1 && bCall.registerD == 2) {
+                    wrapper.addInstructions(
+                        bIndex,
+                        """
+                            invoke-static/range { p5 .. p6 }, $EXTENSION_CLASS->anchorB(ZZ)V
+                        """
+                    )
+                } else {
+                    wrapper.addInstructions(
+                        0,
+                        """
+                            const-string v0, "LB: b anchor regs != v1,v2 (see b smali)"
+                            invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                        """
+                    )
+                }
+            } else {
+                wrapper.addInstructions(
+                    0,
+                    """
+                        const-string v0, "LB: b anchors=${bAnchors.size} (see b smali)"
+                        invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                    """
+                )
+            }
+        }
     }
 }

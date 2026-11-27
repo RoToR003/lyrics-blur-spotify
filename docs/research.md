@@ -4,6 +4,7 @@
 **Ціль:** Spotify Android 9.2.4.2644 (APKM) · Morphe · southstar21-patches v1.4.0 (`30af566`)
 **Дата аудиту:** 2026-11-27
 **Статус:** код рев'юнуто, синтаксис валідовано, API звірено з пінами апстріму. На пристрої не перевірено.
+**Оновлення 2026-11-27 (вечер):** повний статичний розбір APKM 9.2.4.2644 (androguard, 848 інструкцій `ksh0.a`, CFG) — розділи 1, 3, 6, 7 оновлено. Виправлено критичний регістровий баг (`p1` — reference, не boolean).
 
 ---
 
@@ -14,9 +15,18 @@
 - Вставка перед якорем `p.mtc1.f(v0, 1.0f)` (виклик типу `Modifier.fillMaxWidth(1f)`):
   `v0 := p.lxs1.k(v0, LyricsBlurPatch.shouldBlur(p1, p2))`
 - `p.lxs1.k(Modifier, Z)` = `composed(modifier, ix70(1, flag))`; всередині — animated blur
-  (tween 200 мс, 0↔12 px, `graphicsLayer(RenderEffect blur)`); no-op на API < 31.
-- Один метод покриває Now Playing і fullscreen (`f0o#h`, `kk1#I` викликають `ksh0.a`;
-  `dsh0` — службова restart-lambda, не чіпати).
+  (tween 200 мс, 0↔12 px); no-op на API < 31.
+- `ksh0.a` викликають `kk1.I` (classes4 — items-content lambda lazy-list lyrics), `dsh0.invoke`
+  (classes9, службова restart-lambda) та `f0o.h` (classes11). А `p.ksh0.b(...)` —
+  translate-обгортка (translationCrossfade між оригіналом і перекладом рядка) зі **своїм** викликом
+  `p.mtc1.f` (v1, 1.0f); можливо, саме `b` рендерить повноекранний lyrics-екран (на скріншоті користувача
+  видно кнопку «Перекласти»). Який саме з двох composable реально малює рядок — відкрите питання;
+  діагностичний білд логує обидва (розділ 11).
+- **Тіло `ksh0.a` compose-skippable**: інструкція 186 `if-eqz v2` → перехід на 820 (шлях без content),
+  коли `sw50.Y(bits, force)` повертає 0 («нічого не змінилося»). Це єдиний обхід якоря (616) крім
+  недосяжних NoWhenBranch-виходів (449/493/813–819; `p.af.n()` = `NoWhenBranchMatchedException`).
+  Тобто якір виконується лише при реальному перекомпонуванні рядка (напр., перехід активного рядка),
+  не на кожному recomposition. Маркери `anchor`/`bAnchor` + toggle `entry` відрізняють ці випадки.
 - Вставка — до якоря (`addInstructions(index, …)`), тож якір споживає вже розмитий `v0`.
 
 ## 2. Якорі (smali, JADX → Smali view)
@@ -32,11 +42,18 @@
 
 ## 3. Регістри `ksh0.a`
 
-- `.registers 80`, `ins 18` (static) → параметри `p0..p17` = `v62..v79`.
-- `p1` = `v63` (active, Z), `p2` = `v64` (synced, Z) — `> v15` ⇒ тільки `invoke-static/range {p1 .. p2}`.
+- `.registers 80`, `ins 18` (static) → smali `pN` 0-based: `p0..p17` = `v62..v79`.
+- `p0` = `v62` = `psh0` (**reference**), `p1` = `v63` (Z), `p2` = `v64` (Z), `p3` = `v65` (F).
+- **`p1` = `v63` — це перший Z-параметр**; вставка передає лише `{ p1 .. p2 }` (обидва Z).
+  В оригінальній версії патчу діапазон був той самий — валідний; плутанина була лише в нотатках.
+- `p1` (`v63`) — за аналізом виклику (`kk1.I @346`: `sit1.v(mzh0, index)`) = «цей рядок — активний»
+  (для `izh0`/`lzh0`: `index == activeIndex`; для `kzh0`/`jzh0`: завжди true).
+- `p2` (`v64`) — `tzh0.b ← czh0.i` — семантика статично не встановлена (презумпція: прапор
+  synced-режиму, бо `tzh0` будується лише у гілці `byh0` = synced-lyrics).
 - `p6` (Modifier) у методі = `v0` до якіра.
 - `v2` — тимчасовий: наступна після якоря `iget v2, …psh0->a` перезаписує його до першого читання;
   наші `move-result v2` → `invoke-static {v0, v2}` виконуються до того.
+- `v63`/`v64` — виключно джерела (ніде не перезаписуються до якірного місця) — безпечно читати на якорі.
 - `pN` у вставленому smali розв'язує `InlineSmaliCompiler` справжнім ANTLR-парсером smali
   за `registerCount` і параметрами цільового методу.
 - Вставлений блок:
@@ -46,6 +63,18 @@
   invoke-static { v0, v2 }, Lp/lxs1;->k(Lp/xzo0;Z)Lp/xzo0;
   move-result-object v0
   ```
+- Якір: 848 інструкцій (androguard), 16→186 — побудова бітмаску recomposition-флагів,
+  186 `if-eqz v2 → 820` — **skip-шлях** (тіло не виконується, `dsh0` перевикористовується замість
+  повторного виклику `vy7.b`); 590–616 — `“lyrics line color”` → `mtc1.f` (якір),
+  612 `const/high16 v15, 1065353216` (1.0f).
+- `sw50.Y(I Z)Z` (classes.dex): біт-0 аргумента ≠ 0 → `return 1` (перекомпонувати); інакше перевірка
+  стану Composer (`sw50#S/#y/#P/#D/#b`), біти `qd41.b` 1/512 → `return 1`; інакше нотифікація
+  спостерігачів і `return 0` (**пропустити тіло**). У skip-шляху на 820 будується лише `dsh0`
+  (повторне використання слота composable), без жодного `mtc1.f` → якір не досягається.
+- Callers `ksh0.a`: `kk1.I` (classes4, items-content lambda lyric-lazy-list),
+  `dsh0.invoke` (classes9, synthetic restart-lambda), `f0o.h` (classes11).
+- `p.ksh0.b` (translate-обгортка): 161 інструкція; власний `if` на skip (~67 → 144), власний якір
+  `mtc1.f` @119 з регістрами `v1`/`v2` (1.0f); параметри `pN` 0-based: `p5`=`v17` (Z), `p6`=`v18` (Z).
 
 ## 4. Файли патчу
 

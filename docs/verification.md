@@ -1,131 +1,128 @@
-# Перевірка патчу — покроково
+# Перевірка патчу через Morphe — покроково
 
-Мета: підтвердити, що «Lyrics blur» збирається, застосовується до Spotify 9.2.4.2644 і працює на пристрої.
-Рівні: **L1** статика APK → **L2** збірка → **L3** CLI-патч (без пристрою) → **L4** пристрій. Усі чотири — для релізу.
-Тон: інструкція, без води.
+Основний шлях — **Morphe Manager** на пристрої (саме застосунок, не CLI).
+Опційний гейт без пристрою — §A (Morphe CLI; той самий патчер).
+Рівні: **M1** збірка `.mpp` → **M2** джерело в Morphe → **M3** патч + встановлення → **M4** тести → **M5** діагностика.
 
 Критерії приймання (усі обов'язкові):
-1. Bundle збирається; у `patches-list.json` є `Lyrics blur`.
-2. CLI-патч: `success=true`, `failedPatches` порожній, патч у `appliedPatches`.
-3. Встановлене застосунок не падає; lyrics рендеряться.
-4. Неактивні рядки розмиті, активний різкий; перехід плавний; не-lyrics екрани не змінені.
-5. У збірці/конфізі релізу `debugLogging=false`.
+1. `.mpp` зібраний; у `patches-list.json` є `Lyrics blur`.
+2. Morphe: патч **успішно застосований** (немає екрана «Failed to apply Lyrics blur»).
+3. Застосунок встановлюється і не падає; lyrics рендеряться.
+4. Неактивні рядки розмиті, активний різкий; решта екранів незмінна.
+5. Для релізу: `Debug logging` вимкнено.
 
 ---
 
-## L0. Що потрібно
+## M0. Що потрібно
 
-- Машина: JDK 17+ (збирально; для CLI достатньо JRE 17+), git.
-- GitHub-токен з `read:packages` (для GitHub Packages Morphe) — `GITHUB_ACTOR`, `GITHUB_TOKEN`.
-- Spotify **9.2.4.2644** `.apkm` (APKMirror; ім'я файлу містить version code; перед стартом звірте, що це саме 9.2.4.2644, не новіша збірка).
-- Для L4: Android ≥ 12 (blur), USB debugging, ~500 MB вільного місця.
-- Репозиторії: цей (джерела) + `southstar21dev/southstar21-patches` (ціль інтеграції).
-- Опційно, для L3: `jq`.
+- Android-пристрій, **Android 12+** (нижче blur просто не вмикається).
+- **Morphe Manager**: https://morphe.software або GitHub — `MorpheApp/morphe-manager/releases` (latest: `v2.8.0`, `morphe-manager-2.8.0.apk`; `.asc` — підпис).
+- Spotify **9.2.4.2644** `.apkm` (APKMirror; version code звірте за ім'ям файлу).
+- Джава 17+ для збірки `.mpp` (M1). Для лише-встановлення готового `.mpp` збірка не потрібна.
+- `adb` (рекомендовано, для logcat) або термінал на ПК.
 
-## L1. Статика APK (опційно, але рекомендовано до L2)
+## M1. Збірка `.mpp` (на машині з JDK; якщо берете готовий — пропустіть)
 
-1. `.apkm` — це zip: `unzip -l spotify_*.apkm` → вийняти `base.apk`.
-2. JADX-GUI → відкрити `base.apk` → Text search (`Ctrl+Shift+F`, режим «Code»):
-3. Перевірити (очікувані значення з дослідження):
+```
+GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-daemon
+```
+(3 файли скопійовані за `docs/integration.md`; токен — GitHub, scope `read:packages`)
 
-| Що | Очікування | Якщо ні |
-|---|---|---|
-| `lyrics line scale` | веде в `p.ksh0.a` | патч тут не застосуємо; стоп, ескалація |
-| `.access flags` методу `ksh0.a` | `public static final` (тільки ці біти) | див. L7 |
-| `.registers` / `ins` | `80` / `18` | див. L7 |
-| Викликів `p.mtc1.f(Lp/xzo0;F)Lp/xzo0;` у `ksh0.a` | рівно 1, аргументи `v0, v15` | див. L7 |
-| Наступна інструкція після якіра | `iget v2, …` | регістр `v2` зайнятий; див. L7 |
-| `p.lxs1.k(Lp/xzo0;Z)Lp/xzo0;` | існує | патч безглуздий; стоп |
+Очікуємо: `patches/build/libs/patches-<версія>.mpp`.
 
-4. Зафіксувати знайдене (копія `ksh0.a` smali) — знадобиться при розбіжностях.
+## M2. Додати джерело в Morphe (один раз)
 
-## L2. Перенесення і збірка
+**Спосіб A — через файловий менеджер (найпростіше):**
+1. Перекинути `patches-<версія>.mpp` на телефон.
+2. Відкрити його — Morphe запитає: нове джерело → «Add patch source» (довіряєте? → підтвердити);
+   оновлення вже доданого джерела → «This is a new version of %s. Update it?».
+3. Джерело з'являється у списку (`Sources` на головному екрані).
 
-1. Перенести 3 файли за `docs/integration.md` (копія + `AppTarget("9.2.4.2644")` у `Constants.kt`).
-2. Збірка (як у апстрімі `README.md → Development`):
-   ```
-   GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-daemon
-   ```
-3. Очікуємо: `BUILD SUCCESSFUL`, артефакт `patches/build/libs/patches-<версія>.mpp`.
-4. `./gradlew generatePatchesList` → `grep -c "Lyrics blur" patches-list.json` ⇒ `1`.
-5. `unzip -l patches/build/libs/patches-*.mpp` — не помилка; вміст: dex/jar патчів і ресурси (структура — Morphe bundle).
-6. Попередження компілятора (deprecation тощо) — допустимі тільки warning; error = стоп.
+**Спосіб B — у застосунку:**
+1. Morphe → **Sources** → **Add** → «Add patch source».
+2. Обрати **Local** → «Select patch source files» → вказати `.mpp` (ім'я обов'язково `.mpp`).
 
-## L3. CLI-патч (без пристрою; найсильніший gate до L4)
+**Спосіб C — Remote** (автооновлення при релізах): Add → **Remote** → вставити URL джерела
+(`https://github.com/southstar21dev/southstar21-patches` — якщо патч смерджать туди) або deep-link
+`https://morphe.software/add-source?github=southstar21dev/southstar21-patches`.
 
-1. Завантажити Morphe CLI (збірка на `morphe-patcher 2.4.0`, той самий патчер, що в Manager 2.6.0):
-   ```
-   gh release download v2.2.0 -R MorpheApp/morphe-cli -p '*-all.jar' -D .
-   mv morphe-desktop-2.2.0-all.jar morphe-cli.jar
-   ```
-2. Пропатчити (увімкнено лише наш патч):
-   ```
-   java -jar morphe-cli.jar patch \
-     -p patches/build/libs/patches-<версія>.mpp \
-     -e "Lyrics blur" --continue-on-error \
-     -r result.json -o spotify-9.2.4.2644-patched.apk -t tmp/ \
-     spotify_9.2.4.2644-*.apkm
-   ```
-3. Перевірка результату:
-   ```
-   jq '{success, applied: .appliedPatches, failed: [.failedPatches[].name]}' result.json
-   ```
-   Прохід: `success == true`, `applied` містить `Lyrics blur`, `failed` порожній.
-4. Глибокий чек (рекомендовано): `jadx spotify-9.2.4.2644-patched.apk` → знайти `ksh0.a` →
-   у тілі безпосередньо перед викликом `Lp/mtc1;->f(Lp/xzo0;F)Lp/xzo0;` мають бути:
-   ```
-   invoke-static/range { p1 .. p2 }, Lapp/southstar21/extension/spotify/lyricsblur/LyricsBlurPatch;->shouldBlur(ZZ)Z
-   move-result v2
-   invoke-static { v0, v2 }, Lp/lxs1;->k(Lp/xzo0;Z)Lp/xzo0;
-   move-result-object v0
-   ```
-   Це доводить наскрізний шлях «патч → extension → Spotify» до запуску.
-5. L3 ≠ L4: CLI доводить застосування патчу, але не візуальний ефект і не стабільність.
+Після додавання переконайтесь:
+- у списку з'явився **Spotify 9.2.4.2644** (після `AppTarget("9.2.4.2644")` — як перевірений таргет).
+  Якщо `Constants.kt` не редагували, 9.2.4.2644 буде **experimental**: у налаштуваннях джерела
+  увімкніть **Enable experimental app versions** («Shows and patches experimental app targets»).
+- **Expert mode** (Settings → Patching → Expert mode) НЕ обов'язковий для одного джерела; потрібен
+  лише для комбінації з іншими джерелами (як GmsCore для YouTube Music).
+- Якщо джерело показує бейдж **Crashed**/**Blocked**/**Key changed** — патч не застосовуйте,
+  збережіть текст з підказки і зупиніться.
 
-## L4. Пристрій
+## M3. Патч і встановлення
 
-1. Підготовка:
-   - видалити/відв'язати Play Store Spotify (патч змінює підпис — поруч не встане);
-   - зібрати `.mpp` прогнати за L3 (щоб не гадати, чи проблема в коді чи в пристрої);
-   - у Manager: локальний `.mpp` → Spotify 9.2.4.2644 `.apkm` → увімкнути **Lyrics blur** + **Debug logging** (тимчасово) → Patch → Install.
-   - якщо встановлення через adb: для патченого APKM результат Manager — готовий набір APK; ставити його ж, а не голий `patched.apk` із L3, якщо не впевнені щодо splits.
-2. Матриця тестів (для кожного пункту — відзначити OK/FAIL):
+1. Видалити встановлений Spotify з Play Store (підпис після патчу інший — поруч не встануть).
+2. Головний екран Morphe → **Spotify** → обрати файл APKM (9.2.4.2644).
+3. Екран патчів: увімкнути **Lyrics blur**; для першого тесту також **Debug logging**.
+   Опції (Options біля патча): **Only for synced lyrics** (дефолт ON), **Debug logging** (дефолт OFF).
+4. Кнопка патчингу → «Applying patches» → очікуємо екран успіху → **Install**.
+5. Якщо бачите **«Failed to apply Lyrics blur»** — текст помилки і є діагностикою (таблиця M5).
+   Оригінальний Spotify при цьому незмінений.
+
+## M4. Перевірка в застосунку
 
 | # | Крок | Очікування |
 |---|---|---|
-| 1 | Відкрити Spotify, відтворити **timed** пісню, відкрити lyrics (fullscreen) | неактивні рядки розмиті; активний різкий |
-| 2 | Now Playing → lyrics | те саме (той самий composable) |
-| 3 | Слідкувати 10–15 секунд | підсвітка переходить рядками; blur перетікає (~200 мс), без смикань |
-| 4 | Перемотайте в середину пісні | після перескоку стан blur узгоджений (той самий рядок різкий) |
-| 5 | До початку / після кінця пісні (активного рядка нема) | усі рядки розмиті (при `synced=true`) — очікувано |
-| 6 | Текст без таймінгу (unsynced), опція `Only for synced lyrics` = ON (дефолт) | розмиття НЕМАЄ |
-| 7 | Те саме, опцію OFF в Manager, перепатчити | усі рядки розмиті |
-| 8 | Екрани Home / Search / Library / Now Playing без lyrics | візуально без змін |
-| 9 | Скрол lyrics + свайпи між рядками | без ANR/jank; список реагує |
-| 10 | `adb logcat -c && adb logcat -s LyricsBlur:D AndroidRuntime:E *:S` | є рядки `active=false … synced=true` і `active=true … synced=true` |
-| 11 | Мережеві операції (скачування, офлайн-mode) | не змінювались (патч косметичний) |
-| 12 | Свіжий перезапуск застосунку | стан стабільний, крашів нема |
+| 1 | Synced-пісня, lyrics на весь екран | неактивні рядки розмиті; активний різкий |
+| 2 | Now Playing → lyrics | те саме |
+| 3 | Спостерігати 10–15 с | blur «перетікає» ~200 мс за активним рядком, без смикань |
+| 4 | Seek у середину пісні | той самий активний рядок — різкий; решта — розмиті |
+| 5 | До початку / після кінця | активного рядка нема → усі рядки розмиті (при `Only for synced lyrics` = ON) |
+| 6 | Не-timed текст, опція ON (дефолт) | розмиття немає |
+| 7 | Те саме, опція OFF → перепатчити | усі рядки розмиті |
+| 8 | Home / Search / Library / Now Playing без lyrics | без змін |
+| 9 | Скрол lyrics, свайпи | без ANR/фриза |
+| 10 | `adb logcat -c` → `adb logcat -s LyricsBlur:D AndroidRuntime:E *:S` | є рядки `line hook: active=false …` і `active=true …` |
+| 11 | Офлайн/скачаний контент, звичайні екрани | працюють як до патча |
+| 12 | Повний перезапуск застосунку | стабільно |
 
-3. Реліз-гейт: вимкнути **Debug logging** (або перепатчити з дефолтом `false`), повторити тест №1–2 швидко.
+Логкат має сенс лише при увімкненому **Debug logging**.
 
-## L7. Якщо не зійшлось — діагностика
+## M5. Якщо «Failed to apply» / «не працює»
+
+Де читати: екран результату патчу («Failed to apply %s» + details) → у `Sources` бейдж і підказка
+джерела → `adb logcat`. Типові випадки:
 
 | Симптом | Значення | Дія |
 |---|---|---|
-| CLI/Manager: `PatchException`, «method not found» (lyricsblur) | fingerprint не зматчився (інша збірка/інший `.access flags`) | увімкнути `--continue-on-error` не допоможе; надіслати `.access flags` і сигнатуру `ksh0.a` з smali цієї збірки |
-| `expected one call …, found 0` / `found 2+` | якір змінився/переїхав на `/range` | надіслати smali `ksh0.a` повністю |
-| `uses vN, vM, expected v0, v15` | call site re-registered | надіслати smali `ksh0.a` повністю |
-| CLI: `success=false` без наших помилок | конфлікт з іншими патчами | ізолювати: прогнати тільки `Lyrics blur` (`-e "Lyrics blur"` без інших) |
-| `VerifyError` при відкритті lyrics | регістрова схема інша у цій збірці | надіслати `FATAL EXCEPTION` + post-patch smali |
-| Розмиття немає, але логи є (`synced=false`) | unsynced текст або невірна семантика `p2` | перепатчити з вимкненою `Only for synced lyrics`; якщо не допомогло — надіслати logcat + як виглядають lyrics |
-| Розмиття є скрізь (і активний) | переплутано active/synced або `lxs1.k` інверсований | надіслати logcat + smali `ksh0.a` (порядок операндів) |
-| Мерехтіння/стрибки blur | двічі `move-result-object` або гонитва компоновки | відео + logcat + номер збірки |
-| Не встановлюється | підпис (Play Store) | видалити оригінал; або `adb install-multiple` набором splits |
+| `PatchException` … метод `Lp/ksh0;` не знайдено | fingerprint не зматчився (інша збірка / `.access flags` ≠ `public static final`) | надіслати `.access flags` і сигнатуру `ksh0.a` з JADX/smali саме цієї збірки |
+| `expected one call …, found 0` / `>1` | якір `p.mtc1.f` змінився або переїхав на `/range` | повний smali `ksh0.a` |
+| `uses vN, vM, expected v0, v15` | call site перекладено в інші регістри | повний smali `ksh0.a` |
+| `VerifyError` при відкритті lyrics | інша регістрова схема | `FATAL EXCEPTION` + smali після патчу |
+| Патч успішний, blur немає, логи `synced=false` | не-timed lyrics або невірна семантика `p2` | вимкнути «Only for synced lyrics»; якщо не допомогло — logcat + як виглядають lyrics |
+| Blur є скрізь, включно з активним рядком | переплутано active/synced | logcat + smali `ksh0.a` (порядок операндів) |
+| Джерело «Crashed»/«Blocked» | не та збірка `.mpp` або підроблений файл | перекачати `.mpp`, звірити sha256 з релізом |
+| Не встановлюється поверх Play Store Spotify | різний підпис | видалити оригінал |
 
-**Що надсилати в будь-якому FAIL:** точна версія+versionCode APKM; `result.json` (або повний лог Manager); `adb logcat` з фільтром вище; smali `ksh0.a` (до і після патчу); скріншот/відео, кроки відтворення.
+**Що надсилати при FAIL:** точні `version` + `version code` APKM · текст помилки з Morphe (скрін) ·
+`adb logcat` з фільтром вище · smali `ksh0.a` до/після патчу · кроки відтворення.
 
-## L8. Перед мерджем/релізом
+## A. Опційний гейт без пристрою: Morphe CLI
 
-- чекліст L2–L4 пройдений; `debugLogging` = дефолт `false`;
-- PR за конвенціями апстріму (`dev` ← гілка, `feat(Spotify): …`), `CHANGELOG.md`/`patches-list.json` не редагувати;
-- у PR — чесно: на яких збірках перевірено (version+code), що саме (L1–L4).
+Той самий патчер, що в Manager (CLI v2.2.0 = morphe-patcher 2.4.0). Використовуйте як CI-перевірку, не замість M3–M4.
+
+```
+gh release download v2.2.0 -R MorpheApp/morphe-cli -p '*-all.jar' -D .
+mv morphe-desktop-2.2.0-all.jar morphe-cli.jar
+java -jar morphe-cli.jar patch \
+  -p patches/build/libs/patches-<версія>.mpp \
+  -e "Lyrics blur" --continue-on-error \
+  -r result.json -o spotify-patched.apk -t tmp/ \
+  spotify_9.2.4.2644-*.apkm
+jq '{success, applied: .appliedPatches, failed: [.failedPatches[].name]}' result.json
+```
+Прохід: `success=true`, `applied` містить `Lyrics blur`, `failed` порожній.
+Глибокий чек: jadx → `ksh0.a` → перед `mtc1.f` стоять `invoke-static/range { p1 .. p2 } … shouldBlur(ZZ)Z` →
+`move-result v2` → `invoke-static { v0, v2 }, Lp/lxs1;->k(Lp/xzo0;Z)Lp/xzo0;` → `move-result-object v0`.
+
+## B. Перед релізом
+
+- M2–M4 пройдені; **Debug logging вимкнено** (або перепатчити з дефолтом `false`).
+- PR за конвенціями апстріму (`dev` ← гілка, `feat(Spotify): …`); `CHANGELOG.md`/`patches-list.json` не редагувати.
+- У PR вказати version+code перевіреної збірки.

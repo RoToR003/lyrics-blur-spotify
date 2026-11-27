@@ -25,7 +25,7 @@ ksh0.a(...)  ── (bytecode patch) ──►  v0 = lxs1.k(v0, LyricsBlurPatch.
 
 ## Repository layout
 
-**Getting the `.mpp`:** every push builds the bundle **in CI** (`Build .mpp` workflow, run #2 is green). Download `lyrics-blur-spotify-mpp` from this repo's **Actions** tab → latest green run → Artifacts. Or build locally with `scripts/build-mpp.sh` (needs JDK 21 + Android SDK + a GitHub token with `read:packages`). Details in [`docs/verification.md`](docs/verification.md) M1.
+**Getting the `.mpp`:** the Releases page has a rolling prerelease **[bundle-latest](https://github.com/RoToR003/lyrics-blur-spotify/releases/tag/bundle-latest)** with the bundle attached — download `patches-*.mpp` **without** the `-sources`/`-javadoc` suffix (≈4.5 MB). The same file is also on every green `Build .mpp` run under **Actions → Artifacts** (`lyrics-blur-spotify-mpp`). Or build locally with `scripts/build-mpp.sh`. Details in [`docs/verification.md`](docs/verification.md) M1.
 
 This repository is **not** a standalone build. It carries the patch's source files in the exact
 layout expected by [southstar21's Patches](https://github.com/southstar21dev/southstar21-patches),

@@ -23,9 +23,13 @@
 
 ## M1. Збірка `.mpp`
 
-Варіант 0 — **з Actions цього репозиторію** (найпростіший): кожен пуш збирає bundle;
-відкрити Actions → останній ЗЕЛЕНИЙ run "Build .mpp" → артефакт `lyrics-blur-spotify-mpp` → завантажити.
-(Workflow самі перевіряє, що `patches-list.json` містить `Lyrics blur`, тож зелений run = патч всередині.)
+Варіант 0 — **Releases → [bundle-latest](https://github.com/RoToR003/lyrics-blur-spotify/releases/tag/bundle-latest)** (rolling prerelease, оновлюється після кожної збірки на main і з ручного запуску workflow):
+файл `patches-<версія>.mpp` **без** `-sources`/`-javadoc` у назві (≈4.5 MB).
+
+Варіант 0-bis — **з Actions цього репозиторію**: кожен пуш збирає bundle;
+відкрити Actions → останній ЗЕЛЕНИЙ run "Build .mpp" → артефакт `lyrics-blur-spotify-mpp` → завантажити
+(всередині кілька `patches-*.mpp`: беріть той, що без `-sources`/`-javadoc`;
+workflow сам перевіряє, що `patches-list.json` містить `Lyrics blur`).
 
 Варіант 1 — **локально** (потрібні JDK 21, Android SDK, GitHub-токен `read:packages`):
 ```

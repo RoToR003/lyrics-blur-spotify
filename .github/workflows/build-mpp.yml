@@ -81,6 +81,9 @@ jobs:
         run: |
           set -euo pipefail
           ls -l patches/build/libs/*.mpp
+          # The main bundle is patches-<v>.mpp; -sources.mpp / -javadoc.mpp are attached too.
+          main=$(ls patches/build/libs/*.mpp | grep -vE -- '-(sources|javadoc)\.mpp$' | head -1)
+          test -n "$main"
           test "$(grep -c 'Lyrics blur' patches-list.json)" -ge 1
 
       - name: Upload .mpp
@@ -113,7 +116,8 @@ jobs:
         run: |
           set -euo pipefail
           cd mpp
-          file=$(ls *.mpp | head -1)
+          # Pick the real bundle (patches-<v>.mpp), not the -sources/-javadoc companions.
+          file=$(ls *.mpp | grep -vE -- '-(sources|javadoc)\.mpp$' | head -1)
           echo "Publishing $file (from $GITHUB_SHA)"
           if gh release view bundle-latest >/dev/null 2>&1; then
             gh release delete bundle-latest --yes --cleanup-tag

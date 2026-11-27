@@ -54,8 +54,9 @@ jobs:
              "$DEST/patches/src/main/kotlin/app/southstar21/patches/spotify/layout/lyricsblur/"
 
       - name: Add Spotify 9.2.4.2644 as a verified target
-        run: python3 scripts/add-app-target.py \
-          southstar21-patches/patches/src/main/kotlin/app/southstar21/patches/spotify/shared/Constants.kt
+        run: |
+          python3 scripts/add-app-target.py \
+            southstar21-patches/patches/src/main/kotlin/app/southstar21/patches/spotify/shared/Constants.kt
 
       - name: Setup Java
         uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0

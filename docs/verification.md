@@ -21,13 +21,21 @@
 - Джава 17+ для збірки `.mpp` (M1). Для лише-встановлення готового `.mpp` збірка не потрібна.
 - `adb` (рекомендовано, для logcat) або термінал на ПК.
 
-## M1. Збірка `.mpp` (на машині з JDK; якщо берете готовий — пропустіть)
+## M1. Збірка `.mpp`
 
+Варіант 0 — **з Actions цього репозиторію** (найпростіший): кожен пуш збирає bundle;
+відкрити Actions → останній run "Build .mpp" → артефакт `lyrics-blur-spotify-mpp` → завантажити.
+
+Варіант 1 — **локально** (потрібні JDK 21, Android SDK, GitHub-токен `read:packages`):
+```
+./scripts/build-mpp.sh
+```
+(скрипт клонує southstar21-patches, копіює цей патч, додає `AppTarget("9.2.4.2644")`, збирає; результат у `./out/`)
+
+Варіант 2 — **вручну в апстрімі**: 3 файли за `docs/integration.md` +
 ```
 GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-daemon
 ```
-(3 файли скопійовані за `docs/integration.md`; токен — GitHub, scope `read:packages`)
-
 Очікуємо: `patches/build/libs/patches-<версія>.mpp`.
 
 ## M2. Додати джерело в Morphe (один раз)

@@ -1,0 +1,87 @@
+name: Build .mpp
+
+# Builds this patch as a Morphe bundle (.mpp) on every push, entirely on GitHub-hosted
+# runners — no local JDK/Android SDK needed. The bundle appears as a workflow artifact
+# ("lyrics-blur-spotify-mpp"); download it and add it to Morphe Manager (docs/verification.md).
+#
+# How it works: clones southstar21dev/southstar21-patches (the upstream bundle this patch
+# targets), copies this repo's patch files into its layout, adds Spotify 9.2.4.2644 as a
+# verified target, then builds with the upstream Gradle wrapper.
+#
+# Note: the Morphe Gradle plugin reads morphe-patcher from GitHub Packages, so the build
+# needs `packages: read`. The APK is not available here (no APKMirror access, and APKs must
+# not be redistributed), so this workflow proves compilation + packaging only — not that the
+# patch applies to the real APK. For that, see docs/verification.md (CLI gate / on-device).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: build-mpp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build patch bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout southstar21-patches
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: southstar21dev/southstar21-patches
+          ref: main
+          path: southstar21-patches
+
+      - name: Copy patch files into the bundle layout
+        run: |
+          set -euo pipefail
+          DEST=southstar21-patches
+          mkdir -p "$DEST/extensions/spotify/src/main/java/app/southstar21/extension/spotify/lyricsblur"
+          cp extensions/spotify/src/main/java/app/southstar21/extension/spotify/lyricsblur/LyricsBlurPatch.java \
+             "$DEST/extensions/spotify/src/main/java/app/southstar21/extension/spotify/lyricsblur/LyricsBlurPatch.java"
+          mkdir -p "$DEST/patches/src/main/kotlin/app/southstar21/patches/spotify/layout/lyricsblur"
+          cp patches/src/main/kotlin/app/southstar21/patches/spotify/layout/lyricsblur/*.kt \
+             "$DEST/patches/src/main/kotlin/app/southstar21/patches/spotify/layout/lyricsblur/"
+
+      - name: Add Spotify 9.2.4.2644 as a verified target
+        run: python3 scripts/add-app-target.py \
+          southstar21-patches/patches/src/main/kotlin/app/southstar21/patches/spotify/shared/Constants.kt
+
+      - name: Setup Java
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      - name: Build the bundle
+        working-directory: southstar21-patches
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew :patches:buildAndroid generatePatchesList --no-daemon
+
+      - name: Sanity-check the bundle
+        working-directory: southstar21-patches
+        run: |
+          set -euo pipefail
+          ls -l patches/build/libs/*.mpp
+          test "$(grep -c 'Lyrics blur' patches-list.json)" -ge 1
+
+      - name: Upload .mpp
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrics-blur-spotify-mpp
+          path: southstar21-patches/patches/build/libs/*.mpp
+          if-no-files-found: error

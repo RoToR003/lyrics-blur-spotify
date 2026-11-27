@@ -34,8 +34,8 @@ plus the research behind them. To use the patch, integrate it into that repo —
 extensions/spotify/src/main/java/app/southstar21/extension/spotify/lyricsblur/LyricsBlurPatch.java
 patches/src/main/kotlin/app/southstar21/patches/spotify/layout/lyricsblur/LyricsBlurFingerprints.kt
 patches/src/main/kotlin/app/southstar21/patches/spotify/layout/lyricsblur/LyricsBlurPatch.kt
-docs/research.md       — research notes: how the anchors were found (JADX), what was verified
-                         against the upstream pins, what is still unverified (uk/en mix)
+docs/research.md       — research notes: mechanism, anchors, what was verified
+                         against the upstream pins, what is still unverified (uk)
 docs/integration.md    — step-by-step integration into southstar21-patches
 ```
 
@@ -64,9 +64,9 @@ As shown in Morphe Manager, baked into the extension via patch options:
 | Java syntax | `java-parser` 3.0.1 (chevrotain) | ✅ parses clean |
 | Kotlin syntax | `kotlin-parser` 0.0.12 (WASM Kotlin parser) | ✅ full syntax tree, no error nodes |
 | Fingerprint access-flag semantics | `matchMethodOrNull` — declared `accessFlags` compare **all bits** | ⚠️ `[PUBLIC, STATIC, FINAL]` must match the target exactly; an extra `SYNTHETIC` bit fails the match with a clear `PatchException` (not a broken APK) |
-| Smali anchors (`p.ksh0.a`, `p.lxs1.k`, `p.mtc1.f`, register math) | Requires the Spotify APK + JADX | ❌ not verifiable in this environment — see [`docs/research.md`](docs/research.md) §8 |
+| Smali anchors (`p.ksh0.a`, `p.lxs1.k`, `p.mtc1.f`, register math) | Requires the Spotify APK + JADX | ❌ not verifiable in this environment — see `docs/research.md` §6 |
 | On-device behavior (blur, tween, logcat) | Morphe Manager + physical device | ❌ pending |
-| Full Kotlin compile | Needs JDK + gradle + jitpack/Google maven | ❌ not possible here; see [`docs/research.md`](docs/research.md) §5 |
+| Full Kotlin compile | Needs JDK + gradle + jitpack/Google maven | ❌ not possible here; see `docs/research.md` §6 |
 
 ## Legality / ethics
 

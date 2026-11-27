@@ -114,7 +114,12 @@ GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-dae
   «LB: hook alive sdk=…» / «LB: active=… synced=…» (не більше 12 за запуск). Це найпростіший індикатор:
   якщо тости з'являються — хук працює; якщо нема — composable рядка не викликається;
 - **Файл**: `Download/lyricsblur-debug.log` (Android 10+, MediaStore, дозволи не потрібні) —
-  перший рядок `hook alive …`, далі — ті самі рядки, перезаписуються при змінах.
+  перший рядок `hook alive …`, далі — ті самі рядки, перезаписуються при змінах;
+- **Маркери патчу** (з увімкненим Debug logging): при відкритті lyrics мають з'явитись тости
+  **«LB: enter ksh0.a»** (composable рядка викликається) та **«LB: reached anchor»** (контроль
+  доходить до області якоря) — кожен один раз за запуск. Немає `enter` → цей composable не
+  рендерить екран (інший шлях/інший вигляд); є `enter`, нема `reached anchor` → якір у гілці,
+  що не виконується; є обидва, а blur нема → `p.lxs1.k` не діє, механізм треба замінити.
 
 ## M5. Якщо «Failed to apply» / «не працює»
 

@@ -138,17 +138,58 @@ public final class LyricsBlurPatch {
     }
 
     /**
+     * Debug anchor tracker from the main-line composable (p.ksh0.a): fires per call at the
+     * blur insertion point, capped. Tells us the body actually ran — and with which (p2, p3)
+     * booleans — even when the process only reaches the skip path otherwise. Raw booleans, no
+     * semantics claimed. No-op when Debug logging is off; never throws.
+     */
+    public static void anchor(boolean p1, boolean p2) {
+        try {
+            if (!debugLogging()) return;
+            anchorCalls++;
+            if (anchorCalls > 200) return;
+            String line = "anchor p1=" + p1 + " p2=" + p2 + " #" + anchorCalls;
+            Log.d(TAG, line);
+            debugWrite(line);
+        } catch (Throwable t) {
+            Log.e(TAG, "anchor failed", t);
+        }
+    }
+
+    private static int anchorCalls;
+
+    /**
+     * Debug anchor tracker for the translate-mode line wrapper (p.ksh0.b): same idea as
+     * {@link #anchor(boolean, boolean)} for its blur insertion point. Logs the two Z
+     * parameters (p5, p6). No-op when Debug logging is off; never throws.
+     */
+    public static void anchorB(boolean p5, boolean p6) {
+        try {
+            if (!debugLogging()) return;
+            anchorBCalls++;
+            if (anchorBCalls > 200) return;
+            String line = "bAnchor p5=" + p5 + " p6=" + p6 + " #" + anchorBCalls;
+            Log.d(TAG, line);
+            debugWrite(line);
+        } catch (Throwable t) {
+            Log.e(TAG, "anchorB failed", t);
+        }
+    }
+
+    private static int anchorBCalls;
+
+    /**
      * Debug entry tracker from the patch: logs EVERY call into the target method with the
-     * (active, synced) arguments — tells us whether composition reaches the method at all and
-     * with what flags, even if the body exits before any later instrumentation point. Capped; no
-     * toast; no-op when Debug logging is off; never throws.
+     * two Z arguments (p2, p3) — as raw booleans, no semantics claimed — tells us whether
+     * composition reaches the method at all, even if the body exits before any later
+     * instrumentation point. Capped; no toast; no-op when Debug logging is off; never throws.
      */
     public static void entry(boolean active, boolean synced) {
         try {
             if (!debugLogging()) return;
             entryCalls++;
             if (entryCalls > 200) return;
-            String line = "entry: #" + entryCalls + " active=" + active + " synced=" + synced;
+            String line = "entry: #" + entryCalls + " p2=" + active + " p3=" + synced;
             Log.d(TAG, line);
             debugWrite(line);
         } catch (Throwable t) {

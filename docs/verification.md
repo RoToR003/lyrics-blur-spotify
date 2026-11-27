@@ -114,12 +114,15 @@ GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-dae
   «LB: hook alive sdk=…» / «LB: active=… synced=…» (не більше 12 за запуск). Це найпростіший індикатор:
   якщо тости з'являються — хук працює; якщо нема — composable рядка не викликається;
 - **Файл**: `Download/lyricsblur-debug.log` (Android 10+, MediaStore, дозволи не потрібні) —
-  перший рядок `hook alive …`, далі — ті самі рядки, перезаписуються при змінах;
-- **Маркери патчу** (з увімкненим Debug logging): при відкритті lyrics мають з'явитись тости
-  **«LB: enter ksh0.a»** (composable рядка викликається) та **«LB: reached anchor»** (контроль
-  доходить до області якоря) — кожен один раз за запуск. Немає `enter` → цей composable не
-  рендерить екран (інший шлях/інший вигляд); є `enter`, нема `reached anchor` → якір у гілці,
-  що не виконується; є обидва, а blur нема → `p.lxs1.k` не діє, механізм треба замінити.
+  перший рядок `hook alive …`, далі — рядки `line hook: …` / `entry: …` / `anchor …` / `bAnchor …`, перезаписуються при кожному виклику (буфер 15 000 символів);
+- **Маркери та трекери патчу** (з увімкненим Debug logging):
+  - `LB: enter ksh0.a` / `LB: enter ksh0.b` — один раз за запуск, при першому виклику відповідного composable рядка (`a` — основний, `b` — translate-обгортка з crossfade);
+  - `entry: #N p1=… p2=…` — щоразу (до 200), сире значення двох Z-параметрів метода `a` (`p1`→v63, `p2`→v64, без семантики);
+  - `anchor p1=… p2=… #N` — щоразу (до 200), тільки якщо контроль реально доходить до точки вставки blur у `a`;
+  - `bAnchor p5=… p6=… #N` — те саме для якоря у `b`;
+  - `LB: b anchor regs != v1,v2` / `LB: b anchors=N` — shape метода `b` відрізняється від очікуваного (тоді b не інструментовано, крім enter).
+
+  Як читати: немає `enter` зовсім → жоден з двох composable рядка не викликано (інший шлях/екран). Є `enter ksh0.a`, немає `anchor` — composable викликається, але Compose пропускає тіло (`sw50.Y(...)` == 0 → повторне використання слота dsh0); переходи активного рядка все одно мають дати `anchor`. Є `anchor` з ін'єкцією, а blur немає — дивитись значення `p1`/`p2` (можливо, переплутана семантика active/synced або blur-модифікатор не застосовується). `bAnchor` є, а `anchor` немає → рендерить `b` (translate-обгортка) → blur треба переносити туди.
 
 ## M5. Якщо «Failed to apply» / «не працює»
 
@@ -132,7 +135,7 @@ GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-dae
 | `expected one call …, found 0` / `>1` | якір `p.mtc1.f` змінився або переїхав на `/range` | повний smali `ksh0.a` |
 | `uses vN, vM, expected v0, v15` | call site перекладено в інші регістри | повний smali `ksh0.a` |
 | `VerifyError` при відкритті lyrics | інша регістрова схема | `FATAL EXCEPTION` + smali після патчу |
-| Патч успішний, blur немає, логи `synced=false` | не-timed lyrics або невірна семантика `p2` | вимкнути «Only for synced lyrics»; якщо не допомогло — logcat + як виглядають lyrics |
+| Патч успішний, blur немає, логи `synced=false` | не-timed lyrics або невірна семантика p1/p2 | вимкнути «Only for synced lyrics»; якщо не допомогло — logcat + як виглядають lyrics |
 | Blur є скрізь, включно з активним рядком | переплутано active/synced | logcat + smali `ksh0.a` (порядок операндів) |
 | Джерело «Crashed»/«Blocked» | не та збірка `.mpp` або підроблений файл | перекачати `.mpp`, звірити sha256 з релізом |
 | Не встановлюється поверх Play Store Spotify | різний підпис | видалити оригінал |

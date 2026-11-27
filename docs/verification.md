@@ -109,7 +109,11 @@ GITHUB_ACTOR=<you> GITHUB_TOKEN=<token> ./gradlew :patches:buildAndroid --no-dae
 | 11 | Офлайн/скачаний контент, звичайні екрани | працюють як до патча |
 | 12 | Повний перезапуск застосунку | стабільно |
 
-Логкат має сенс лише при увімкненому **Debug logging**.
+Логкат має сенс лише при увімкненому **Debug logging**. Без adb: той самий прапорець додатково
+перезаписує файл **Завантаження/lyricsblur-debug.log** (`Downloads/lyricsblur-debug.log`,
+Android 10+, через MediaStore — дозволи не потрібні). Відкрийте його будь-яким файловим
+менеджером: першим рядком буде `hook alive sdk=… isSupported=…`, далі — зміни комбінацій
+`line hook: active=… synced=…`.
 
 ## M5. Якщо «Failed to apply» / «не працює»
 

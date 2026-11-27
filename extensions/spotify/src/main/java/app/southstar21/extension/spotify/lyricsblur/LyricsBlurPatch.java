@@ -2,6 +2,7 @@ package app.southstar21.extension.spotify.lyricsblur;
 
 import android.annotation.SuppressLint;
 import android.animation.ValueAnimator;
+import android.content.Context;
 import android.graphics.RenderEffect;
 import android.graphics.Shader;
 import android.os.Build;
@@ -32,6 +33,12 @@ public final class LyricsBlurPatch {
     private static int lastCombo = -1;
     private static int calls;
 
+    // Debug log without adb: rewritten to Download/lyricsblur-debug.log via MediaStore (API 29+).
+    // Read it with any file manager / Files app. Only used when the Debug logging option is on.
+    private static final String DEBUG_FILE = "lyricsblur-debug.log";
+    private static final int DEBUG_BUFFER_MAX = 15000;
+    private static final StringBuilder debugBuffer = new StringBuilder();
+
     private LyricsBlurPatch() {
     }
 
@@ -59,9 +66,16 @@ public final class LyricsBlurPatch {
             if (debugLogging()) {
                 calls++;
                 int combo = (active ? 2 : 0) | (synced ? 1 : 0);
+                if (calls == 1) {
+                    debugWrite("hook alive sdk=" + Build.VERSION.SDK_INT
+                            + " requireSynced=" + requireSynced()
+                            + " isSupported=" + isSupported());
+                }
                 if (combo != lastCombo) {
                     lastCombo = combo;
-                    Log.d(TAG, "line hook: active=" + active + " synced=" + synced + " calls=" + calls);
+                    String line = "line hook: active=" + active + " synced=" + synced + " calls=" + calls;
+                    Log.d(TAG, line);
+                    debugWrite(line);
                 }
             }
             if (!isSupported()) return false;
@@ -77,6 +91,49 @@ public final class LyricsBlurPatch {
     /** Blur needs Android 12. */
     public static boolean isSupported() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
+    }
+
+    /**
+     * Appends a line to the debug buffer and rewrites Download/lyricsblur-debug.log. Needs no
+     * permissions on API 29+ (MediaStore). Silent no-op below that; logcat still works.
+     */
+    private static void debugWrite(String line) {
+        try {
+            debugBuffer.append(line).append('\n');
+            if (debugBuffer.length() > DEBUG_BUFFER_MAX) {
+                debugBuffer.delete(0, debugBuffer.length() - DEBUG_BUFFER_MAX);
+            }
+            if (Build.VERSION.SDK_INT < 29) return;
+            Context ctx = (Context) Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            if (ctx == null) return;
+            android.content.ContentResolver cr = ctx.getContentResolver();
+            android.net.Uri uri = null;
+            try (android.database.Cursor c = cr.query(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    new String[]{android.provider.MediaStore.Downloads._ID},
+                    android.provider.MediaStore.Downloads.DISPLAY_NAME + "=?",
+                    new String[]{DEBUG_FILE}, null)) {
+                if (c != null && c.moveToFirst()) {
+                    uri = android.content.ContentUris.withAppendedId(
+                            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0));
+                }
+            }
+            if (uri == null) {
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, DEBUG_FILE);
+                values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
+                uri = cr.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            }
+            if (uri == null) return;
+            java.io.OutputStream out = cr.openOutputStream(uri, "wt");
+            if (out != null) {
+                out.write(debugBuffer.toString().getBytes("UTF-8"));
+                out.close();
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "debugWrite failed", t);
+        }
     }
 
     // region View based lyrics (not used by the Compose patch)

@@ -38,8 +38,12 @@ public final class LyricsBlurPatch {
     // One file, rewritten (truncated) on every write; the buffer is capped small and trimmed at
     // line boundaries, so the file is always short enough to open or share.
     private static final String DEBUG_FILE = "lyricsblur-debug.log";
+    private static final String DEBUG_PREFS = "lyricsblur_debug";
+    private static final String KEY_URI = "debug_file_uri";
     private static final int DEBUG_BUFFER_MAX = 6000;
     private static final StringBuilder debugBuffer = new StringBuilder();
+    private static android.net.Uri debugUri; // cached for this process
+    private static boolean debugCleanupDone;
     private static int toastsShown;
     private static final int TOAST_LIMIT = 12;
     private static final java.util.HashSet<String> seenMarkers = new java.util.HashSet<>();
@@ -236,6 +240,19 @@ public final class LyricsBlurPatch {
     /**
      * Appends a line to the debug buffer and rewrites Download/lyricsblur-debug.log. Needs no
      * permissions on API 29+ (MediaStore). Silent no-op below that; logcat still works.
+     * <p>
+     * Exactly one file must exist, always: earlier builds could insert a fresh copy per write on
+     * devices where the Downloads query returns no rows, piling up duplicates. This version finds
+     * the file in three steps and never inserts blindly:
+     * <ol>
+     * <li>URI cached in memory for this process;</li>
+     * <li>URI persisted in app SharedPreferences (survives process restarts and works even when
+     * the Downloads query returns zero rows);</li>
+     * <li>one-time-per-process MediaStore scan: keeps the newest matching row, deletes every
+     * stale duplicate older builds created, and reuses the kept row.</li>
+     * </ol>
+     * A new file is inserted (with RELATIVE_PATH and the IS_PENDING flow) only when no usable
+     * row/URI exists at all.
      */
     private static void debugWrite(String line) {
         try {
@@ -250,31 +267,130 @@ public final class LyricsBlurPatch {
                     .getMethod("currentApplication").invoke(null);
             if (ctx == null) return;
             android.content.ContentResolver cr = ctx.getContentResolver();
-            android.net.Uri uri = null;
-            try (android.database.Cursor c = cr.query(
-                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                    new String[]{android.provider.MediaStore.Downloads._ID},
-                    android.provider.MediaStore.Downloads.DISPLAY_NAME + "=?",
-                    new String[]{DEBUG_FILE}, null)) {
-                if (c != null && c.moveToFirst()) {
-                    uri = android.content.ContentUris.withAppendedId(
-                            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0));
+            android.net.Uri uri = debugUri;
+
+            if (uri == null) {
+                try {
+                    String saved = ctx.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
+                            .getString(KEY_URI, null);
+                    if (saved != null) uri = android.net.Uri.parse(saved);
+                } catch (Throwable ignored) {
                 }
             }
-            if (uri == null) {
-                android.content.ContentValues values = new android.content.ContentValues();
-                values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, DEBUG_FILE);
-                values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
-                uri = cr.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri != null && !writable(cr, uri)) uri = null;
+            if (uri == null && !debugCleanupDone) {
+                debugCleanupDone = true;
+                uri = dedupeDownloads(cr); // keep newest, delete the rest
             }
+            if (uri == null) uri = createDownloadFile(cr);
             if (uri == null) return;
+            debugUri = uri;
+            try {
+                ctx.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
+                        .edit().putString(KEY_URI, uri.toString()).apply();
+            } catch (Throwable ignored) {
+            }
+            byte[] payload = debugBuffer.toString().getBytes("UTF-8");
             java.io.OutputStream out = cr.openOutputStream(uri, "rwt");
             if (out != null) {
-                out.write(debugBuffer.toString().getBytes("UTF-8"));
-                out.close();
+                try {
+                    out.write(payload);
+                } finally {
+                    out.close();
+                }
             }
         } catch (Throwable t) {
             Log.e(TAG, "debugWrite failed", t);
+        }
+    }
+
+    /** true when an "rwt" stream can be opened on the uri (i.e. it still exists and is ours). */
+    private static boolean writable(android.content.ContentResolver cr, android.net.Uri uri) {
+        java.io.OutputStream out = null;
+        try {
+            out = cr.openOutputStream(uri, "rwt");
+            return out != null;
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            if (out != null) {
+                try {
+                    out.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
+    /**
+     * One-time scan of the Downloads collection for stale lyricsblur-debug*.log rows created by
+     * older builds. Keeps the newest row, deletes the rest. Returns the kept uri, or null when
+     * nothing matching is visible (then the caller inserts one new file).
+     */
+    private static android.net.Uri dedupeDownloads(android.content.ContentResolver cr) {
+        android.database.Cursor c = null;
+        try {
+            c = cr.query(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    new String[]{android.provider.MediaStore.Downloads._ID},
+                    android.provider.MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
+                    new String[]{"lyricsblur-debug%"},
+                    android.provider.MediaStore.Downloads._ID + " ASC");
+            if (c == null || !c.moveToFirst()) return null;
+            long bestId = -1;
+            java.util.ArrayList<Long> ids = new java.util.ArrayList<>();
+            do {
+                ids.add(c.getLong(0));
+            } while (c.moveToNext());
+            for (long id : ids) bestId = Math.max(bestId, id);
+            for (long id : ids) {
+                if (id == bestId) continue;
+                try {
+                    cr.delete(android.content.ContentUris.withAppendedId(
+                            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, id),
+                            null, null);
+                } catch (Throwable ignored) {
+                }
+            }
+            return android.content.ContentUris.withAppendedId(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, bestId);
+        } catch (Throwable t) {
+            Log.e(TAG, "dedupeDownloads failed", t);
+            return null;
+        } finally {
+            if (c != null) {
+                try {
+                    c.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
+    /** Inserts exactly one new Downloads file (RELATIVE_PATH + IS_PENDING flow). */
+    private static android.net.Uri createDownloadFile(android.content.ContentResolver cr) {
+        android.net.Uri uri = null;
+        try {
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, DEBUG_FILE);
+            values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
+            values.put(android.provider.MediaStore.Downloads.RELATIVE_PATH,
+                    android.os.Environment.DIRECTORY_DOWNLOADS + "/");
+            values.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+            uri = cr.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) return null;
+            android.content.ContentValues done = new android.content.ContentValues();
+            done.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+            cr.update(uri, done, null, null);
+            return uri;
+        } catch (Throwable t) {
+            Log.e(TAG, "createDownloadFile failed", t);
+            if (uri != null) {
+                try {
+                    cr.delete(uri, null, null);
+                } catch (Throwable ignored) {
+                }
+            }
+            return null;
         }
     }
 

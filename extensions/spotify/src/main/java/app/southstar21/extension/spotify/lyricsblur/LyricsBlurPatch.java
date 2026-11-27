@@ -38,6 +38,8 @@ public final class LyricsBlurPatch {
     private static final String DEBUG_FILE = "lyricsblur-debug.log";
     private static final int DEBUG_BUFFER_MAX = 15000;
     private static final StringBuilder debugBuffer = new StringBuilder();
+    private static int toastsShown;
+    private static final int TOAST_LIMIT = 12;
 
     private LyricsBlurPatch() {
     }
@@ -70,12 +72,15 @@ public final class LyricsBlurPatch {
                     debugWrite("hook alive sdk=" + Build.VERSION.SDK_INT
                             + " requireSynced=" + requireSynced()
                             + " isSupported=" + isSupported());
+                    debugToast("LB: hook alive sdk=" + Build.VERSION.SDK_INT
+                            + (isSupported() ? "" : " UNSUPPORTED(<12)"));
                 }
                 if (combo != lastCombo) {
                     lastCombo = combo;
                     String line = "line hook: active=" + active + " synced=" + synced + " calls=" + calls;
                     Log.d(TAG, line);
                     debugWrite(line);
+                    debugToast("LB: active=" + active + " synced=" + synced);
                 }
             }
             if (!isSupported()) return false;
@@ -84,6 +89,9 @@ public final class LyricsBlurPatch {
         } catch (Throwable t) {
             // Never take the app down over a cosmetic patch.
             Log.e(TAG, "shouldBlur failed", t);
+            if (debugLogging()) {
+                debugToast("LB: error " + t);
+            }
             return false;
         }
     }
@@ -91,6 +99,23 @@ public final class LyricsBlurPatch {
     /** Blur needs Android 12. */
     public static boolean isSupported() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
+    }
+
+    /**
+     * Shows a short toast when hook events occur — the only debug channel that needs nothing at
+     * all (no adb, no file manager). Capped at {@link #TOAST_LIMIT} per process; debug-only.
+     */
+    private static void debugToast(String line) {
+        try {
+            if (toastsShown >= TOAST_LIMIT) return;
+            toastsShown++;
+            Context ctx = (Context) Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            if (ctx == null) return;
+            android.widget.Toast.makeText(ctx, line, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Throwable ignored) {
+            // Never take the app down over a debug toast.
+        }
     }
 
     /**
@@ -126,7 +151,7 @@ public final class LyricsBlurPatch {
                 uri = cr.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             }
             if (uri == null) return;
-            java.io.OutputStream out = cr.openOutputStream(uri, "wt");
+            java.io.OutputStream out = cr.openOutputStream(uri, "rwt");
             if (out != null) {
                 out.write(debugBuffer.toString().getBytes("UTF-8"));
                 out.close();

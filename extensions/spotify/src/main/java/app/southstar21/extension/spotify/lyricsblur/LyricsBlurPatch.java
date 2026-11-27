@@ -35,8 +35,10 @@ public final class LyricsBlurPatch {
 
     // Debug log without adb: rewritten to Download/lyricsblur-debug.log via MediaStore (API 29+).
     // Read it with any file manager / Files app. Only used when the Debug logging option is on.
+    // One file, rewritten (truncated) on every write; the buffer is capped small and trimmed at
+    // line boundaries, so the file is always short enough to open or share.
     private static final String DEBUG_FILE = "lyricsblur-debug.log";
-    private static final int DEBUG_BUFFER_MAX = 15000;
+    private static final int DEBUG_BUFFER_MAX = 6000;
     private static final StringBuilder debugBuffer = new StringBuilder();
     private static int toastsShown;
     private static final int TOAST_LIMIT = 12;
@@ -138,66 +140,78 @@ public final class LyricsBlurPatch {
     }
 
     /**
-     * Debug anchor tracker from the main-line composable (p.ksh0.a): fires per call at the
-     * blur insertion point, capped. Tells us the body actually ran — and with which (p2, p3)
-     * booleans — even when the process only reaches the skip path otherwise. Raw booleans, no
-     * semantics claimed. No-op when Debug logging is off; never throws.
+     * Debug anchor tracker from the main-line composable (p.ksh0.a): logs the (p1, p2) booleans
+     * at the blur insertion point, but only when the combination changes (or on the first call),
+     * so the log file stays small even on steady recomposition. Raw booleans, no semantics
+     * claimed; every line carries the total call count (@#). No-op when Debug logging is off;
+     * never throws.
      */
     public static void anchor(boolean p1, boolean p2) {
         try {
             if (!debugLogging()) return;
             anchorCalls++;
-            if (anchorCalls > 200) return;
-            String line = "anchor p1=" + p1 + " p2=" + p2 + " #" + anchorCalls;
-            Log.d(TAG, line);
-            debugWrite(line);
+            int combo = (p1 ? 2 : 0) | (p2 ? 1 : 0);
+            if (anchorCalls == 1 || combo != lastAnchorCombo) {
+                lastAnchorCombo = combo;
+                String line = "anchor p1=" + p1 + " p2=" + p2 + " @#" + anchorCalls;
+                Log.d(TAG, line);
+                debugWrite(line);
+            }
         } catch (Throwable t) {
             Log.e(TAG, "anchor failed", t);
         }
     }
 
     private static int anchorCalls;
+    private static int lastAnchorCombo = -1;
 
     /**
      * Debug anchor tracker for the translate-mode line wrapper (p.ksh0.b): same idea as
      * {@link #anchor(boolean, boolean)} for its blur insertion point. Logs the two Z
-     * parameters (p5, p6). No-op when Debug logging is off; never throws.
+     * parameters (p5, p6) on change only. No-op when Debug logging is off; never throws.
      */
     public static void anchorB(boolean p5, boolean p6) {
         try {
             if (!debugLogging()) return;
             anchorBCalls++;
-            if (anchorBCalls > 200) return;
-            String line = "bAnchor p5=" + p5 + " p6=" + p6 + " #" + anchorBCalls;
-            Log.d(TAG, line);
-            debugWrite(line);
+            int combo = (p5 ? 2 : 0) | (p6 ? 1 : 0);
+            if (anchorBCalls == 1 || combo != lastAnchorBCombo) {
+                lastAnchorBCombo = combo;
+                String line = "bAnchor p5=" + p5 + " p6=" + p6 + " @#" + anchorBCalls;
+                Log.d(TAG, line);
+                debugWrite(line);
+            }
         } catch (Throwable t) {
             Log.e(TAG, "anchorB failed", t);
         }
     }
 
     private static int anchorBCalls;
+    private static int lastAnchorBCombo = -1;
 
     /**
-     * Debug entry tracker from the patch: logs EVERY call into the target method with the
-     * two Z arguments (p2, p3) — as raw booleans, no semantics claimed — tells us whether
-     * composition reaches the method at all, even if the body exits before any later
-     * instrumentation point. Capped; no toast; no-op when Debug logging is off; never throws.
+     * Debug entry tracker from the patch: logs the (p1, p2) booleans seen at method entry, but
+     * only on change (or first call), so steady-state recomposition doesn't bloat the file.
+     * Lines carry the total call count (@#). No-op when Debug logging is off; never throws.
      */
     public static void entry(boolean active, boolean synced) {
         try {
             if (!debugLogging()) return;
             entryCalls++;
-            if (entryCalls > 200) return;
-            String line = "entry: #" + entryCalls + " p2=" + active + " p3=" + synced;
-            Log.d(TAG, line);
-            debugWrite(line);
+            int combo = (active ? 2 : 0) | (synced ? 1 : 0);
+            if (entryCalls == 1 || combo != lastEntryCombo) {
+                lastEntryCombo = combo;
+                String line = "entry @#" + entryCalls + " p1=" + active + " p2=" + synced;
+                Log.d(TAG, line);
+                debugWrite(line);
+            }
         } catch (Throwable t) {
             Log.e(TAG, "entry failed", t);
         }
     }
 
     private static int entryCalls;
+    private static int lastEntryCombo = -1;
 
     /**
      * Debug marker from the patch itself: fires once per {@code name} per process; logcat + file +
@@ -227,7 +241,9 @@ public final class LyricsBlurPatch {
         try {
             debugBuffer.append(line).append('\n');
             if (debugBuffer.length() > DEBUG_BUFFER_MAX) {
-                debugBuffer.delete(0, debugBuffer.length() - DEBUG_BUFFER_MAX);
+                int cut = debugBuffer.indexOf("\n",
+                        debugBuffer.length() - DEBUG_BUFFER_MAX);
+                debugBuffer.delete(0, cut < 0 ? debugBuffer.length() - DEBUG_BUFFER_MAX : cut + 1);
             }
             if (Build.VERSION.SDK_INT < 29) return;
             Context ctx = (Context) Class.forName("android.app.ActivityThread")

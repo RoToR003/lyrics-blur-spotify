@@ -138,6 +138,27 @@ public final class LyricsBlurPatch {
     }
 
     /**
+     * Debug entry tracker from the patch: logs EVERY call into the target method with the
+     * (active, synced) arguments — tells us whether composition reaches the method at all and
+     * with what flags, even if the body exits before any later instrumentation point. Capped; no
+     * toast; no-op when Debug logging is off; never throws.
+     */
+    public static void entry(boolean active, boolean synced) {
+        try {
+            if (!debugLogging()) return;
+            entryCalls++;
+            if (entryCalls > 200) return;
+            String line = "entry: #" + entryCalls + " active=" + active + " synced=" + synced;
+            Log.d(TAG, line);
+            debugWrite(line);
+        } catch (Throwable t) {
+            Log.e(TAG, "entry failed", t);
+        }
+    }
+
+    private static int entryCalls;
+
+    /**
      * Debug marker from the patch itself: fires once per {@code name} per process; logcat + file +
      * toast. Used to bisect where control flow reaches in the target method. No-op when Debug
      * logging is off; never throws.

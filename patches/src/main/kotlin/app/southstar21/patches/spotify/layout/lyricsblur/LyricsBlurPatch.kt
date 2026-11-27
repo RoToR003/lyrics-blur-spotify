@@ -121,13 +121,15 @@ val spotifyLyricsBlurPatch = bytecodePatch(
             """
         )
 
-        // Marker (a): at method entry — confirms this composable runs at all. v0 is a free local
-        // on entry. Fires once per process and only under Debug logging.
+        // Marker (a): at method entry — confirms this composable runs at all — and the entry
+        // tracker: logs (active, synced) on EVERY call, so we see composition activity even if
+        // the body exits before the anchor. v0 is a free local on entry.
         method.addInstructions(
             0,
             """
                 const-string v0, "LB: enter ksh0.a"
                 invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                invoke-static/range { p1 .. p2 }, $EXTENSION_CLASS->entry(ZZ)V
             """
         )
     }

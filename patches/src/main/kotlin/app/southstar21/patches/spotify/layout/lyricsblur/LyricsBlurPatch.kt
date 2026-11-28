@@ -91,7 +91,7 @@ val spotifyLyricsBlurPatch = bytecodePatch(
             instruction.opcode == Opcode.INVOKE_VIRTUAL &&
                 ((instruction as ReferenceInstruction).reference as? MethodReference)
                     ?.let { DexFormatter.INSTANCE.getMethodDescriptor(it) == "Lp/sw50;->Y(I Z)Z" } == true
-        }?.first
+        }?.index
             ?: error("Lyrics blur: the p.sw50.Y(changed, force) call was not found; Spotify's code changed.")
         val ifEqzIndex = (yIndex + 1 until minOf(impl.instructions.size, yIndex + 6))
             .firstOrNull { impl.instructions[it].opcode == Opcode.IF_EQZ }

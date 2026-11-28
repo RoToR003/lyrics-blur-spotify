@@ -185,5 +185,27 @@ val spotifyLyricsBlurPatch = bytecodePatch(
                 )
             }
         }
+
+        // Skip-path tracker: Compose's changed-check (`if-eqz` right after p.sw50.Y(changed))
+        // jumps to instruction 820 when the method body may be skipped. A no-arg call injected
+        // there logs `skip @#N` at most once per second. If instruction 820 doesn't exist
+        // (method layout changed), the injection is skipped and a marker explains why — the
+        // blur injection itself is unaffected.
+        runCatching {
+            val size = method.implementation!!.instructions.size
+            check(size > 820) { "ksh0.a has only $size instructions, expected > 820" }
+            method.addInstructions(
+                820,
+                "invoke-static {}, $EXTENSION_CLASS->skip()V"
+            )
+        }.onFailure {
+            method.addInstructions(
+                0,
+                """
+                    const-string v0, "LB: skip injection failed (see build log)"
+                    invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                """
+            )
+        }
     }
 }

@@ -44,6 +44,11 @@ public final class LyricsBlurPatch {
     private static final StringBuilder debugBuffer = new StringBuilder();
     private static android.net.Uri debugUri; // cached for this process
     private static boolean debugCleanupDone;
+    private static final Object debugLock = new Object();
+    private static final java.util.concurrent.ExecutorService debugIO =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static boolean debugFlushPending;
+    private static long debugT0 = -1L;
     private static int toastsShown;
     private static final int TOAST_LIMIT = 12;
     private static final java.util.HashSet<String> seenMarkers = new java.util.HashSet<>();
@@ -194,17 +199,43 @@ public final class LyricsBlurPatch {
     private static int lastAnchorBCombo = -1;
 
     /**
-     * Debug entry tracker from the patch: logs the (p1, p2) booleans seen at method entry, but
-     * only on change (or first call), so steady-state recomposition doesn't bloat the file.
-     * Lines carry the total call count (@#). No-op when Debug logging is off; never throws.
+     * Debug skip-path tracker from the patch: injected at instruction 820 of the main-line
+     * composable — the branch target Compose jumps to when the changed-check decides to skip the
+     * method body. `skip` vs `entry` tells us how often the body actually runs. Logs at most once
+     * per second. No-op when Debug logging is off; never throws.
+     */
+    public static void skip() {
+        try {
+            if (!debugLogging()) return;
+            skipCalls++;
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (skipCalls == 1 || now - lastSkipLogMs >= 1000L) {
+                lastSkipLogMs = now;
+                String line = "skip @#" + skipCalls;
+                Log.d(TAG, line);
+                debugWrite(line);
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "skip failed", t);
+        }
+    }
+
+    private static int skipCalls;
+    private static long lastSkipLogMs;
+
+    /**
+     * Debug entry tracker from the patch: logs the (p1, p2) booleans seen at method entry, at
+     * most once per second (the composable is called per visible line, so per-change logging
+     * floods the buffer — the alternation false/true/false… is predictable anyway). Lines carry
+     * the total call count (@#). No-op when Debug logging is off; never throws.
      */
     public static void entry(boolean active, boolean synced) {
         try {
             if (!debugLogging()) return;
             entryCalls++;
-            int combo = (active ? 2 : 0) | (synced ? 1 : 0);
-            if (entryCalls == 1 || combo != lastEntryCombo) {
-                lastEntryCombo = combo;
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (entryCalls == 1 || now - lastEntryLogMs >= 1000L) {
+                lastEntryLogMs = now;
                 String line = "entry @#" + entryCalls + " p1=" + active + " p2=" + synced;
                 Log.d(TAG, line);
                 debugWrite(line);
@@ -215,7 +246,7 @@ public final class LyricsBlurPatch {
     }
 
     private static int entryCalls;
-    private static int lastEntryCombo = -1;
+    private static long lastEntryLogMs;
 
     /**
      * Debug marker from the patch itself: fires once per {@code name} per process; logcat + file +
@@ -238,69 +269,105 @@ public final class LyricsBlurPatch {
     }
 
     /**
-     * Appends a line to the debug buffer and rewrites Download/lyricsblur-debug.log. Needs no
-     * permissions on API 29+ (MediaStore). Silent no-op below that; logcat still works.
+     * Appends a line to the debug buffer and schedules an asynchronous rewrite of
+     * Download/lyricsblur-debug.log. Lines are stamped with elapsed milliseconds since the
+     * first debug write (t=…). MediaStore I/O happens on a single background thread and is
+     * coalesced: a burst of lines produces exactly one rewrite, and appends during a flush are
+     * merged into the next one. Calling thread only does a StringBuilder append.
      * <p>
-     * Exactly one file must exist, always: earlier builds could insert a fresh copy per write on
-     * devices where the Downloads query returns no rows, piling up duplicates. This version finds
-     * the file in three steps and never inserts blindly:
-     * <ol>
-     * <li>URI cached in memory for this process;</li>
-     * <li>URI persisted in app SharedPreferences (survives process restarts and works even when
-     * the Downloads query returns zero rows);</li>
-     * <li>one-time-per-process MediaStore scan: keeps the newest matching row, deletes every
-     * stale duplicate older builds created, and reuses the kept row.</li>
-     * </ol>
-     * A new file is inserted only when no usable row/URI exists at all, trying the bare insert
-     * first and the RELATIVE_PATH + IS_PENDING flow as a fallback.
+     * Exactly one file must exist, always: the URI is cached in memory per process and persisted
+     * in app SharedPreferences (survives restarts, no Downloads query needed); a one-time-per-
+     * process scan keeps the newest `lyricsblur-debug*` row and deletes stale duplicates older
+     * builds created; a new file is inserted only when nothing usable exists (bare insert first,
+     * RELATIVE_PATH + IS_PENDING as a fallback, never deleted afterwards).
      */
     private static void debugWrite(String line) {
-        try {
-            debugBuffer.append(line).append('\n');
+        long n = android.os.SystemClock.elapsedRealtime();
+        if (debugT0 < 0) debugT0 = n;
+        String stamped = "t=" + (n - debugT0) + " " + line;
+        synchronized (debugLock) {
+            debugBuffer.append(stamped).append('\n');
             if (debugBuffer.length() > DEBUG_BUFFER_MAX) {
                 int cut = debugBuffer.indexOf("\n",
                         debugBuffer.length() - DEBUG_BUFFER_MAX);
                 debugBuffer.delete(0, cut < 0 ? debugBuffer.length() - DEBUG_BUFFER_MAX : cut + 1);
             }
-            if (Build.VERSION.SDK_INT < 29) return;
-            Context ctx = (Context) Class.forName("android.app.ActivityThread")
-                    .getMethod("currentApplication").invoke(null);
-            if (ctx == null) return;
-            android.content.ContentResolver cr = ctx.getContentResolver();
-            android.net.Uri uri = debugUri;
-
-            if (uri == null) {
-                try {
-                    String saved = ctx.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
-                            .getString(KEY_URI, null);
-                    if (saved != null) uri = android.net.Uri.parse(saved);
-                } catch (Throwable ignored) {
+            if (debugFlushPending) return;
+            debugFlushPending = true;
+        }
+        try {
+            debugIO.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        flushDebugBuffer();
+                    } catch (Throwable t) {
+                        Log.e(TAG, "flush failed", t);
+                        synchronized (debugLock) {
+                            debugFlushPending = false;
+                        }
+                    }
                 }
+            });
+        } catch (Throwable t) {
+            synchronized (debugLock) {
+                debugFlushPending = false;
             }
-            if (uri != null && !writable(cr, uri)) uri = null;
-            if (uri == null && !debugCleanupDone) {
-                debugCleanupDone = true;
-                uri = dedupeDownloads(cr); // keep newest, delete the rest
-            }
-            if (uri == null) uri = createDownloadFile(cr);
-            if (uri == null) return;
-            debugUri = uri;
+            Log.e(TAG, "debugWrite submit failed", t);
+        }
+    }
+
+    private static void flushDebugBuffer() {
+        String payload;
+        synchronized (debugLock) {
+            // Snapshot and clear the pending flag in the same critical section: lines appended
+            // during the I/O below schedule their own flush, none are lost.
+            payload = debugBuffer.toString();
+            debugFlushPending = false;
+        }
+        if (Build.VERSION.SDK_INT < 29) return;
+        Context ctx = currentApplication();
+        if (ctx == null) return;
+        android.content.ContentResolver cr = ctx.getContentResolver();
+        android.net.Uri uri = debugUri;
+
+        if (uri == null) {
             try {
-                ctx.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
-                        .edit().putString(KEY_URI, uri.toString()).apply();
+                String saved = ctx.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
+                        .getString(KEY_URI, null);
+                if (saved != null) uri = android.net.Uri.parse(saved);
             } catch (Throwable ignored) {
             }
-            byte[] payload = debugBuffer.toString().getBytes("UTF-8");
-            java.io.OutputStream out = cr.openOutputStream(uri, "rwt");
-            if (out != null) {
-                try {
-                    out.write(payload);
-                } finally {
-                    out.close();
-                }
+        }
+        if (uri != null && !writable(cr, uri)) uri = null;
+        if (uri == null && !debugCleanupDone) {
+            debugCleanupDone = true;
+            uri = dedupeDownloads(cr); // keep newest, delete the rest
+        }
+        if (uri == null) uri = createDownloadFile(cr);
+        if (uri == null) return;
+        debugUri = uri;
+        try {
+            ctx.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
+                    .edit().putString(KEY_URI, uri.toString()).apply();
+        } catch (Throwable ignored) {
+        }
+        java.io.OutputStream out = cr.openOutputStream(uri, "rwt");
+        if (out != null) {
+            try {
+                out.write(payload.getBytes("UTF-8"));
+            } finally {
+                out.close();
             }
+        }
+    }
+
+    private static Context currentApplication() {
+        try {
+            return (Context) Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
         } catch (Throwable t) {
-            Log.e(TAG, "debugWrite failed", t);
+            return null;
         }
     }
 

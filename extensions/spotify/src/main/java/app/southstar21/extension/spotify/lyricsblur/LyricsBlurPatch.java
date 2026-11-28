@@ -251,8 +251,8 @@ public final class LyricsBlurPatch {
      * <li>one-time-per-process MediaStore scan: keeps the newest matching row, deletes every
      * stale duplicate older builds created, and reuses the kept row.</li>
      * </ol>
-     * A new file is inserted (with RELATIVE_PATH and the IS_PENDING flow) only when no usable
-     * row/URI exists at all.
+     * A new file is inserted only when no usable row/URI exists at all, trying the bare insert
+     * first and the RELATIVE_PATH + IS_PENDING flow as a fallback.
      */
     private static void debugWrite(String line) {
         try {
@@ -366,8 +366,24 @@ public final class LyricsBlurPatch {
         }
     }
 
-    /** Inserts exactly one new Downloads file (RELATIVE_PATH + IS_PENDING flow). */
+    /**
+     * Inserts exactly one new Downloads file. Step 1 is the bare insert (DISPLAY_NAME + MIME_TYPE)
+     * that earlier builds used successfully on-device; step 2 is the RELATIVE_PATH + IS_PENDING
+     * flow for devices that need the file properly indexed. Never deletes a file it created: a
+     * pending-clear failure is logged but not fatal.
+     */
     private static android.net.Uri createDownloadFile(android.content.ContentResolver cr) {
+        try {
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, DEBUG_FILE);
+            values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
+            android.net.Uri uri = cr.insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri != null) return uri;
+            Log.e(TAG, "createDownloadFile (bare): insert returned null");
+        } catch (Throwable t) {
+            Log.e(TAG, "createDownloadFile (bare) failed", t);
+        }
         android.net.Uri uri = null;
         try {
             android.content.ContentValues values = new android.content.ContentValues();
@@ -378,18 +394,16 @@ public final class LyricsBlurPatch {
             values.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
             uri = cr.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) return null;
-            android.content.ContentValues done = new android.content.ContentValues();
-            done.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
-            cr.update(uri, done, null, null);
+            try {
+                android.content.ContentValues done = new android.content.ContentValues();
+                done.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+                cr.update(uri, done, null, null);
+            } catch (Throwable t2) {
+                Log.e(TAG, "createDownloadFile: clearing IS_PENDING failed", t2);
+            }
             return uri;
         } catch (Throwable t) {
-            Log.e(TAG, "createDownloadFile failed", t);
-            if (uri != null) {
-                try {
-                    cr.delete(uri, null, null);
-                } catch (Throwable ignored) {
-                }
-            }
+            Log.e(TAG, "createDownloadFile (pending flow) failed", t);
             return null;
         }
     }

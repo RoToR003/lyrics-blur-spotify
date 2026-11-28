@@ -77,9 +77,44 @@ val spotifyLyricsBlurPatch = bytecodePatch(
 
         val method = LyricsLineFingerprint.method
 
+        // Diagnostics first, against the ORIGINAL instruction indices (insert descending, so
+        // positions below stay valid):
+        // - instruction 820 is the target of Compose's changed-check (`if-eqz` after p.sw50.Y):
+        //   the "skip the body" path. Injecting `skipPath()` there tells us the body was skipped.
+        // - instruction 187 is the first instruction on the fall-through (body) path.
+        // Each is a one-shot marker: fires at most once per process, only with Debug logging on.
+        // Guarded: if the layout differs, the blur injection below still happens untouched.
+        runCatching {
+            val size = method.implementation!!.instructions.size
+            check(size > 820) { "ksh0.a has only $size instructions, expected > 820" }
+            method.addInstructions(820, "invoke-static {}, $EXTENSION_CLASS->skipPath()V")
+        }.onFailure {
+            method.addInstructions(
+                0,
+                """
+                    const-string v0, "LB: skipPath injection failed"
+                    invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                """
+            )
+        }
+        runCatching {
+            val size = method.implementation!!.instructions.size
+            check(size > 187) { "ksh0.a has only $size instructions, expected > 187" }
+            method.addInstructions(187, "invoke-static {}, $EXTENSION_CLASS->bodyPath()V")
+        }.onFailure {
+            method.addInstructions(
+                0,
+                """
+                    const-string v0, "LB: bodyPath injection failed"
+                    invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                """
+            )
+        }
+
         // The one call of ANCHOR_CALL in the method, with exactly (v0, v15) as arguments.
         // DexFormatter produces the same "Lclass;->name(params)return" string as the deprecated
-        // ReferenceUtil.getMethodDescriptor, which this replaces.
+        // ReferenceUtil.getMethodDescriptor, which this replaces. Recomputed here because the
+        // diagnostic injections above shifted the instruction indices.
         val anchors = method.implementation!!.instructions.withIndex().filter { (_, instruction) ->
             instruction.opcode == Opcode.INVOKE_STATIC &&
                     ((instruction as ReferenceInstruction).reference as? MethodReference)

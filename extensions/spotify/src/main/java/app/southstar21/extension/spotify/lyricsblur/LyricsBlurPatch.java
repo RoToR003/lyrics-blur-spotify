@@ -334,6 +334,28 @@ public final class LyricsBlurPatch {
         }
     }
 
+    /**
+     * Diagnostics: one-shot markers for the Compose changed-check in the line composable,
+     * injected by the patch on the body path (right after `if-eqz`) and on the skip path
+     * (instruction 820) to prove which branch is actually taken. Log once per process; no-op
+     * unless Debug logging is on.
+     */
+    public static void bodyPath() {
+        try {
+            if (!debugLogging()) return;
+            marker("LB: body path");
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static void skipPath() {
+        try {
+            if (!debugLogging()) return;
+            marker("LB: skip path");
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** true when an "rwt" stream can be opened on the uri (i.e. it still exists and is ours). */
     private static boolean writable(android.content.ContentResolver cr, android.net.Uri uri) {
         java.io.OutputStream out = null;

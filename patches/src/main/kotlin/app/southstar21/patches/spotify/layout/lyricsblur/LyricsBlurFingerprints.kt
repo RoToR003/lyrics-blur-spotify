@@ -40,3 +40,24 @@ internal object LyricsLineWrapperFingerprint : Fingerprint(
         "Lkotlin/jvm/functions/Function0;", "Z", "Z", "Lp/nvk;", "I",
     ),
 )
+
+/**
+ * The lambda that draws lyrics (and artist-event card) line text. Obfuscated as Lp.l8l in
+ * 9.2.4.2644; renders via Lp.hps1;->c (the Text composable).
+ *
+ * A packed-switch on field "a" picks between two render paths: case 0 is the artist-events
+ * full-bleed card (draws l8l fields f/g — a String and a z8l model); the fall-through branch
+ * is the lyrics path (l8l field f is cast to Lp/psh0;, the lyric line model, and psh0.e is the
+ * line text). Constructed in Lp.ksh0.c (lyrics lines, a=1) and Lp.v8l.f (events cards, a=0).
+ *
+ * Fields (byte "a" = lambda mode; Z "b" = synced / tap-to-seek; Z "c" = timing/layout
+ * selector; float "d" = line scale; Z "e" = is this line the actively sung one).
+ *
+ * Parameters: Composer, changed (both boxed as java.lang.Object).
+ */
+internal object LyricsTextLineFingerprint : Fingerprint(
+    definingClass = "Lp/l8l;",
+    name = "invoke",
+    returnType = "Ljava/lang/Object;",
+    parameters = listOf("Ljava/lang/Object;", "Ljava/lang/Object;"),
+)

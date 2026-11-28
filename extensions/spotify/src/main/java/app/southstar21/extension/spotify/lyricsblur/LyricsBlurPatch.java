@@ -145,11 +145,12 @@ public final class LyricsBlurPatch {
     }
 
     /**
-     * Debug anchor tracker from the main-line composable (p.ksh0.a): logs the (p1, p2) booleans
-     * at the blur insertion point, but only when the combination changes (or on the first call),
-     * so the log file stays small even on steady recomposition. Raw booleans, no semantics
-     * claimed; every line carries the total call count (@#). No-op when Debug logging is off;
-     * never throws.
+     * Debug anchor tracker from the composables where the blur is injected (the lyrics-line
+     * renderer lambdas — p.l8l in the fall-through branch, and p.ksh0.a in Sing mode): logs the
+     * (p1, p2) booleans seen at the blur insertion point, but only when the combination changes
+     * (or on the first call), so the log file stays small even on steady recomposition. Raw
+     * booleans, no semantics claimed; every line carries the total call count (@#). No-op when
+     * Debug logging is off; never throws.
      */
     public static void anchor(boolean p1, boolean p2) {
         try {
@@ -169,6 +170,32 @@ public final class LyricsBlurPatch {
 
     private static int anchorCalls;
     private static int lastAnchorCombo = -1;
+
+    /**
+     * Debug anchor tracker for the regular lyrics-line renderer (Lp.l8l, the fall-through
+     * branch — the path that draws the psh0 lyric line model): same idea as
+     * {@link #anchor(boolean, boolean)}, with its own counter, so the regular-lyrics path can be
+     * told apart from the Sing-mode one (ksh0.a, which also calls {@code anchor}). p1 = field
+     * "e" (this line is the actively sung one), p2 = field "b" (synced / tap-to-seek).
+     */
+    public static void anchorL(boolean p1, boolean p2) {
+        try {
+            if (!debugLogging()) return;
+            anchorLCalls++;
+            int combo = (p1 ? 2 : 0) | (p2 ? 1 : 0);
+            if (anchorLCalls == 1 || combo != lastAnchorLCombo) {
+                lastAnchorLCombo = combo;
+                String line = "anchorL active=" + p1 + " synced=" + p2 + " @#" + anchorLCalls;
+                Log.d(TAG, line);
+                debugWrite(line);
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "anchorL failed", t);
+        }
+    }
+
+    private static int anchorLCalls;
+    private static int lastAnchorLCombo = -1;
 
     /**
      * Debug anchor tracker for the translate-mode line wrapper (p.ksh0.b): same idea as

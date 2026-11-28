@@ -44,10 +44,6 @@ public final class LyricsBlurPatch {
     private static final StringBuilder debugBuffer = new StringBuilder();
     private static android.net.Uri debugUri; // cached for this process
     private static boolean debugCleanupDone;
-    private static final Object debugLock = new Object();
-    private static final java.util.concurrent.ExecutorService debugIO =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
-    private static boolean debugFlushPending;
     private static long debugT0 = -1L;
     private static int toastsShown;
     private static final int TOAST_LIMIT = 12;

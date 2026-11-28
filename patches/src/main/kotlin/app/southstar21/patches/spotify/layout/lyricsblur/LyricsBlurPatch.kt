@@ -2,6 +2,7 @@ package app.southstar21.patches.spotify.layout.lyricsblur
 
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.extensions.InstructionExtensions.replaceInstructions
 import app.morphe.patcher.patch.booleanOption
 import app.morphe.patcher.patch.bytecodePatch
 import app.southstar21.patches.spotify.misc.extension.spotifySharedExtensionPatch
@@ -77,39 +78,27 @@ val spotifyLyricsBlurPatch = bytecodePatch(
 
         val method = LyricsLineFingerprint.method
 
-        // Diagnostics first, against the ORIGINAL instruction indices (insert descending, so
-        // positions below stay valid):
-        // - instruction 820 is the target of Compose's changed-check (`if-eqz` after p.sw50.Y):
-        //   the "skip the body" path. Injecting `skipPath()` there tells us the body was skipped.
-        // - instruction 187 is the first instruction on the fall-through (body) path.
-        // Each is a one-shot marker: fires at most once per process, only with Debug logging on.
-        // Guarded: if the layout differs, the blur injection below still happens untouched.
-        runCatching {
-            val size = method.implementation!!.instructions.size
-            check(size > 820) { "ksh0.a has only $size instructions, expected > 820" }
-            method.addInstructions(820, "invoke-static {}, $EXTENSION_CLASS->skipPath()V")
-        }.onFailure {
-            method.addInstructions(
-                0,
-                """
-                    const-string v0, "LB: skipPath injection failed"
-                    invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
-                """
-            )
-        }
-        runCatching {
-            val size = method.implementation!!.instructions.size
-            check(size > 187) { "ksh0.a has only $size instructions, expected > 187" }
-            method.addInstructions(187, "invoke-static {}, $EXTENSION_CLASS->bodyPath()V")
-        }.onFailure {
-            method.addInstructions(
-                0,
-                """
-                    const-string v0, "LB: bodyPath injection failed"
-                    invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
-                """
-            )
-        }
+        // Unblock the Compose changed-check in this composable. Spotify's lyrics list call
+        // site passes the $changed/$default/$changed2 parameters as constant 0 ("nothing
+        // changed"), so Compose always takes the "reuse the cached group" path and the
+        // composable BODY never re-executes after the first composition: the blur injection
+        // below (and Spotify's own modifier chain) would be dead code. Replace the
+        // `if-eqz v2` that guards the skip path (right after the p.sw50.Y call) replaced by a
+        // nop; the changed bits stay computed (v2 is unused afterwards) but no longer skip.
+        // The body is small; the recomposition traffic observed on-device is ~16 Hz.
+        val impl = method.implementation!!
+        val yIndex = impl.instructions.withIndex().firstOrNull { (_, instruction) ->
+            instruction.opcode == Opcode.INVOKE_VIRTUAL &&
+                ((instruction as ReferenceInstruction).reference as? MethodReference)
+                    ?.let { DexFormatter.INSTANCE.getMethodDescriptor(it) == "Lp/sw50;->Y(I Z)Z" } == true
+        }?.index
+            ?: error("Lyrics blur: the p.sw50.Y(changed, force) call was not found; Spotify's code changed.")
+        val ifEqzIndex = (yIndex + 1 until minOf(impl.instructions.size, yIndex + 6))
+            .firstOrNull { impl.instructions[it].opcode == Opcode.IF_EQZ }
+            ?: error("Lyrics blur: the changed-check `if-eqz` after p.sw50.Y was not found; Spotify's code changed.")
+        // One instruction replaced by one instruction: code-unit layout shrinks by one unit and
+        // branch targets are re-resolved by dexlib2 (builder labels), so everything else is fine.
+        method.replaceInstructions(ifEqzIndex, "nop")
 
         // The one call of ANCHOR_CALL in the method, with exactly (v0, v15) as arguments.
         // DexFormatter produces the same "Lclass;->name(params)return" string as the deprecated

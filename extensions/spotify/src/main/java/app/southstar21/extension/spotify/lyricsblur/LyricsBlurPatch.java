@@ -224,9 +224,10 @@ public final class LyricsBlurPatch {
     private static long lastSkipLogMs;
 
     /**
-     * Debug entry tracker from the patch: logs the (p1, p2) booleans seen at method entry, but
-     * only on change (or first call), so steady-state recomposition doesn't bloat the file.
-     * Lines carry the total call count (@#). No-op when Debug logging is off; never throws.
+     * Debug entry tracker from the patch: logs the (p1, p2) booleans seen at method entry, at
+     * most once per second (the composable is called per visible line, so per-change logging
+     * floods the buffer — the alternation false/true/false… is predictable anyway). Lines carry
+     * the total call count (@#). No-op when Debug logging is off; never throws.
      */
     public static void entry(boolean active, boolean synced) {
         try {
@@ -270,6 +271,7 @@ public final class LyricsBlurPatch {
     /**
      * Appends a line to the debug buffer and rewrites Download/lyricsblur-debug.log. Needs no
      * permissions on API 29+ (MediaStore). Silent no-op below that; logcat still works.
+     * Lines are stamped with elapsed milliseconds since the first debug write (t=…).
      * <p>
      * Exactly one file must exist, always: earlier builds could insert a fresh copy per write on
      * devices where the Downloads query returns no rows, piling up duplicates. This version finds
@@ -286,7 +288,9 @@ public final class LyricsBlurPatch {
      */
     private static void debugWrite(String line) {
         try {
-            debugBuffer.append(line).append('\n');
+            long n = android.os.SystemClock.elapsedRealtime();
+            if (debugT0 < 0) debugT0 = n;
+            debugBuffer.append("t=" + (n - debugT0) + " " + line).append('\n');
             if (debugBuffer.length() > DEBUG_BUFFER_MAX) {
                 int cut = debugBuffer.indexOf("\n",
                         debugBuffer.length() - DEBUG_BUFFER_MAX);

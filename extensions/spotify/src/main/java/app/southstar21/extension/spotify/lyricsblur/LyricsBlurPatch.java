@@ -195,31 +195,6 @@ public final class LyricsBlurPatch {
     private static int lastAnchorBCombo = -1;
 
     /**
-     * Debug skip-path tracker from the patch: injected at instruction 820 of the main-line
-     * composable — the branch target Compose jumps to when the changed-check decides to skip the
-     * method body. `skip` vs `entry` tells us how often the body actually runs. Logs at most once
-     * per second. No-op when Debug logging is off; never throws.
-     */
-    public static void skip() {
-        try {
-            if (!debugLogging()) return;
-            skipCalls++;
-            long now = android.os.SystemClock.elapsedRealtime();
-            if (skipCalls == 1 || now - lastSkipLogMs >= 1000L) {
-                lastSkipLogMs = now;
-                String line = "skip @#" + skipCalls;
-                Log.d(TAG, line);
-                debugWrite(line);
-            }
-        } catch (Throwable t) {
-            Log.e(TAG, "skip failed", t);
-        }
-    }
-
-    private static int skipCalls;
-    private static long lastSkipLogMs;
-
-    /**
      * Debug entry tracker from the patch: logs the (p1, p2) booleans seen at method entry, at
      * most once per second (the composable is called per visible line, so per-change logging
      * floods the buffer — the alternation false/true/false… is predictable anyway). Lines carry
@@ -331,28 +306,6 @@ public final class LyricsBlurPatch {
             }
         } catch (Throwable t) {
             Log.e(TAG, "debugWrite failed", t);
-        }
-    }
-
-    /**
-     * Diagnostics: one-shot markers for the Compose changed-check in the line composable,
-     * injected by the patch on the body path (right after `if-eqz`) and on the skip path
-     * (instruction 820) to prove which branch is actually taken. Log once per process; no-op
-     * unless Debug logging is on.
-     */
-    public static void bodyPath() {
-        try {
-            if (!debugLogging()) return;
-            marker("LB: body path");
-        } catch (Throwable ignored) {
-        }
-    }
-
-    public static void skipPath() {
-        try {
-            if (!debugLogging()) return;
-            marker("LB: skip path");
-        } catch (Throwable ignored) {
         }
     }
 

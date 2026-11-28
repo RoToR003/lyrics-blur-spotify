@@ -239,7 +239,7 @@ val spotifyLyricsBlurPatch = bytecodePatch(
                         ?.let { DexFormatter.INSTANCE.getFieldDescriptor(it) == "Lp/uzo0;->a Lp/uzo0;" } == true
             }?.index
             val switchIndex = l8lImpl.instructions.withIndex()
-                .firstOrNull { it.instruction.opcode == Opcode.PACKED_SWITCH }?.index
+                .firstOrNull { (_, ins) -> ins.opcode == Opcode.PACKED_SWITCH }?.index
             when {
                 uzo0Index == null -> runCatching {
                     textLine.addInstructions(

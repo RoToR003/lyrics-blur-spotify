@@ -191,14 +191,12 @@ val spotifyLyricsBlurPatch = bytecodePatch(
         // there logs `skip @#N` at most once per second. If instruction 820 doesn't exist
         // (method layout changed), the injection is skipped and a marker explains why — the
         // blur injection itself is unaffected.
-        runCatching {
-            val size = method.implementation!!.instructions.size
-            check(size > 820) { "ksh0.a has only $size instructions, expected > 820" }
+        if (method.implementation!!.instructions.size > 820) {
             method.addInstructions(
                 820,
                 "invoke-static {}, $EXTENSION_CLASS->skip()V"
             )
-        }.onFailure {
+        } else {
             method.addInstructions(
                 0,
                 """

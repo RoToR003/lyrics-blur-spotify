@@ -82,23 +82,37 @@ val spotifyLyricsBlurPatch = bytecodePatch(
         // site passes the $changed/$default/$changed2 parameters as constant 0 ("nothing
         // changed"), so Compose always takes the "reuse the cached group" path and the
         // composable BODY never re-executes after the first composition: the blur injection
-        // below (and Spotify's own modifier chain) would be dead code. Replace the
-        // `if-eqz v2` that guards the skip path (right after the p.sw50.Y call) replaced by a
-        // nop; the changed bits stay computed (v2 is unused afterwards) but no longer skip.
+        // below (and Spotify's own modifier chain) would be dead code. The `if-eqz v2` that
+        // guards the skip path (right after the p.sw50.Y call) is replaced by a nop; the
+        // changed bits stay computed (v2 is unused afterwards) but no longer skip.
         // The body is small; the recomposition traffic observed on-device is ~16 Hz.
+        // DexFormatter writes NO separator between parameter types: Y(IZ)Z, not Y(I Z)Z.
+        // Guarded: if the call or the if-eqz is not where expected, the patch still applies and
+        // logs one marker instead of aborting — the blur injection below is the essential part.
         val impl = method.implementation!!
-        val yIndex = impl.instructions.withIndex().firstOrNull { (_, instruction) ->
-            instruction.opcode == Opcode.INVOKE_VIRTUAL &&
-                ((instruction as ReferenceInstruction).reference as? MethodReference)
-                    ?.let { DexFormatter.INSTANCE.getMethodDescriptor(it) == "Lp/sw50;->Y(I Z)Z" } == true
-        }?.index
-            ?: error("Lyrics blur: the p.sw50.Y(changed, force) call was not found; Spotify's code changed.")
-        val ifEqzIndex = (yIndex + 1 until minOf(impl.instructions.size, yIndex + 6))
-            .firstOrNull { impl.instructions[it].opcode == Opcode.IF_EQZ }
-            ?: error("Lyrics blur: the changed-check `if-eqz` after p.sw50.Y was not found; Spotify's code changed.")
-        // One instruction replaced by one instruction: code-unit layout shrinks by one unit and
-        // branch targets are re-resolved by dexlib2 (builder labels), so everything else is fine.
-        method.replaceInstructions(ifEqzIndex, "nop")
+        runCatching {
+            val yIndex = impl.instructions.withIndex().firstOrNull { (_, instruction) ->
+                instruction.opcode == Opcode.INVOKE_VIRTUAL &&
+                    ((instruction as ReferenceInstruction).reference as? MethodReference)
+                        ?.let { DexFormatter.INSTANCE.getMethodDescriptor(it) == "Lp/sw50;->Y(IZ)Z" } == true
+            }?.index
+                ?: error("p.sw50.Y call not found")
+            val ifEqzIndex = (yIndex + 1 until minOf(impl.instructions.size, yIndex + 6))
+                .firstOrNull { impl.instructions[it].opcode == Opcode.IF_EQZ }
+                ?: error("changed-check if-eqz not found")
+            // One instruction replaced by one instruction: code-unit layout shrinks by one unit
+            // and branch targets are re-resolved by dexlib2 (builder labels), so everything else
+            // stays valid.
+            method.replaceInstructions(ifEqzIndex, "nop")
+        }.onFailure {
+            method.addInstructions(
+                0,
+                """
+                    const-string v0, "LB: changed-check not found"
+                    invoke-static { v0 }, $EXTENSION_CLASS->marker(Ljava/lang/String;)V
+                """
+            )
+        }
 
         // The one call of ANCHOR_CALL in the method, with exactly (v0, v15) as arguments.
         // DexFormatter produces the same "Lclass;->name(params)return" string as the deprecated

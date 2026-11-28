@@ -75,9 +75,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./gradlew :patches:buildAndroid generatePatchesList --no-daemon || \
+          set -o pipefail
+          ./gradlew :patches:buildAndroid generatePatchesList --no-daemon 2>&1 | tee /tmp/build.log || \
             (echo "::warning::First build attempt failed; retrying once with --stacktrace" && \
-             ./gradlew :patches:buildAndroid generatePatchesList --no-daemon --stacktrace)
+             ./gradlew :patches:buildAndroid generatePatchesList --no-daemon --stacktrace 2>&1 | tee /tmp/build.log) || {
+              # The Actions log is not downloadable from everywhere; surface the actual
+              # compiler errors as workflow annotations so they can be seen without the log.
+              grep -E "^(e: |w: .*error|error: )" /tmp/build.log | head -40 | while IFS= read -r line; do
+                echo "::error::${line}"
+              done
+              grep -B2 -A8 -m2 -E "(FAILED|What went wrong)" /tmp/build.log | head -60 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | while IFS= read -r line; do
+                echo "::error::${line}"
+              done
+              exit 1
+            }
 
       - name: Sanity-check the bundle
         working-directory: southstar21-patches
